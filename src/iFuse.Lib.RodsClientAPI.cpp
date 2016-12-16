@@ -9,6 +9,7 @@
 #include <assert.h>
 #include <pthread.h>
 #include <list>
+#include <arpa/inet.h>
 #include "iFuse.Lib.hpp"
 #include "iFuse.Lib.RodsClientAPI.hpp"
 #include "iFuse.Lib.Util.hpp"
@@ -55,8 +56,32 @@ static void* _timeoutChecker(void* param) {
             oper = removeList.front();
             removeList.pop_front();
             g_Operations.remove(oper);
-            
-            shutdown(oper->conn->sock, 2);
+
+            if(oper->conn != NULL) {
+                socklen_t len;
+                struct sockaddr_storage addr;
+                char ipstr[INET6_ADDRSTRLEN];
+                int port;
+                len = sizeof addr;
+
+                getsockname(oper->conn->sock, (struct sockaddr*)&addr, &len);
+
+                // deal with both IPv4 and IPv6:
+                if (addr.ss_family == AF_INET) {
+                    struct sockaddr_in *s = (struct sockaddr_in *)&addr;
+                    port = ntohs(s->sin_port);
+                    inet_ntop(AF_INET, &s->sin_addr, ipstr, sizeof ipstr);
+                } else { // AF_INET6
+                    struct sockaddr_in6 *s = (struct sockaddr_in6 *)&addr;
+                    port = ntohs(s->sin6_port);
+                    inet_ntop(AF_INET6, &s->sin6_addr, ipstr, sizeof ipstr);
+                }
+
+                iFuseRodsClientLog(LOG_DEBUG, "_timeoutChecker: kill connection (Local IP address): %s:%d\n", ipstr, port);
+
+                // kill the connection
+                shutdown(oper->conn->sock, 2);
+            }
         }
         
         pthread_mutex_unlock(&g_RodsClientAPILock);
@@ -131,7 +156,32 @@ int iFuseRodsClientReadMsgError(int status) {
 }
 
 rcComm_t *iFuseRodsClientConnect(const char *rodsHost, int rodsPort, const char *userName, const char *rodsZone, int reconnFlag, rErrMsg_t *errMsg) {
-    return rcConnect(rodsHost, rodsPort, userName, rodsZone, reconnFlag, errMsg);
+    rcComm_t *conn = NULL;
+    conn = rcConnect(rodsHost, rodsPort, userName, rodsZone, reconnFlag, errMsg);
+    if(conn != NULL) {
+        socklen_t len;
+        struct sockaddr_storage addr;
+        char ipstr[INET6_ADDRSTRLEN];
+        int port;
+        len = sizeof addr;
+
+        getsockname(conn->sock, (struct sockaddr*)&addr, &len);
+
+        // deal with both IPv4 and IPv6:
+        if (addr.ss_family == AF_INET) {
+            struct sockaddr_in *s = (struct sockaddr_in *)&addr;
+            port = ntohs(s->sin_port);
+            inet_ntop(AF_INET, &s->sin_addr, ipstr, sizeof ipstr);
+        } else { // AF_INET6
+            struct sockaddr_in6 *s = (struct sockaddr_in6 *)&addr;
+            port = ntohs(s->sin6_port);
+            inet_ntop(AF_INET6, &s->sin6_addr, ipstr, sizeof ipstr);
+        }
+
+        iFuseRodsClientLog(LOG_DEBUG, "iFuseRodsClientConnect: Local IP address: %s:%d\n", ipstr, port);
+    }
+
+    return conn;
 }
 
 int iFuseRodsClientLogin(rcComm_t *conn) {

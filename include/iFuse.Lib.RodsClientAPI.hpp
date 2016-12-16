@@ -9,9 +9,9 @@
 #include "rodsClient.h"
 #include "iFuse.Lib.Util.hpp"
 
-#define IFUSE_RODSCLIENTAPI_TIMEOUT_SEC     (30)
+#define IFUSE_RODSCLIENTAPI_TIMEOUT_SEC     (90)
 
-//#define IFUSE_RODSCLIENTAPI_LOG_PRINT_TIME
+#define IFUSE_RODSCLIENTAPI_LOG_PRINT_TIME
 //#define IFUSE_RODSCLIENTAPI_LOG_OUT_TO_FILE
 #define IFUSE_RODSCLIENTAPI_LOG_OUT_FILE_PATH   "/tmp/irods_debug.out"
 
@@ -22,7 +22,7 @@ int iFuseRodsClientReadMsgError(int status);
 
 #ifdef IFUSE_RODSCLIENTAPI_LOG_OUT_TO_FILE
 #   define iFuseRodsClientLogBase       iFuseRodsClientLogToFile
-#   define iFuseRodsClientLogErrorBase  iFuseRodsClientLogErrorToFile 
+#   define iFuseRodsClientLogErrorBase  iFuseRodsClientLogErrorToFile
 #else
 #   define iFuseRodsClientLogBase       rodsLog
 #   define iFuseRodsClientLogErrorBase  rodsLogError
