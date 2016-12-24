@@ -91,7 +91,7 @@ int main(int argc, char **argv) {
     // check mount point
     status = checkMountPoint(myiFuseOpt.mountpoint, myiFuseOpt.nonempty);
     if(status != 0) {
-        fprintf(stderr, "iRods Fuse abort: mount point is not empty\n");
+        fprintf(stderr, "iRods Fuse abort: mount point check failed\n");
         iFuseCmdOptsDestroy();
         return 1;
     }

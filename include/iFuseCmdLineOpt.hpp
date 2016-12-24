@@ -3,7 +3,7 @@
 /*** This code is written by Illyoung Choi (iychoi@email.arizona.edu)      ***
  *** funded by iPlantCollaborative (www.iplantcollaborative.org).          ***/
 #ifndef IFUSECMDLINEOPT_HPP
-#define	IFUSECMDLINEOPT_HPP
+#define IFUSECMDLINEOPT_HPP
 
 #include "iFuse.Lib.hpp"
 
@@ -16,4 +16,3 @@ void iFuseGenCmdLineForFuse(int *fuse_argc, char ***fuse_argv);
 void iFuseReleaseCmdLineForFuse(int fuse_argc, char **fuse_argv);
 
 #endif	/* IFUSECMDLINEOPT_HPP */
-

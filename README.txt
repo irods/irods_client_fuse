@@ -61,14 +61,10 @@ work. Type in:
 and do the normal login.
 
 4) The irodsFs uses block-based file content transfer. Regardless of physical file 
-blocks of iRODS, the irodsFs divides the file content into fixed sized blocks 
-logically and requests content reads or writes to iRODS in the block level. 
-Hence, small reads or writes will be buffered and cached in memory temporarily. 
-Block size is set to 1MB by default. To change block size, you will need to 
-change the value of a definition of "IFUSE_BUFFER_CACHE_BLOCK_SIZE" 
-in iFuse.BufferedFS.hpp file. 
-To turn off this memory cache and buffered I/O, pass "-onocache" to command line 
-argument.
+blocks of iRODS, the irodsFs divides the file content into fixed-size blocks 
+logically and requests content reads/writes to iRODS in the block level. 
+Hence, small reads/writes will be buffered and cached in memory temporarily.
+Block size is set to 1MB by default.
 
 5) Mount the home collection to the local directory by typing in:
 ./irodsFs /usr/tmp/fmount
@@ -99,4 +95,3 @@ WARNING
 such as iput, irm, icp, etc to change the content of the collection because
 the FUSE implementation seems to cache the attributes of the contents of
 the collection.  
-

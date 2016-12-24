@@ -25,6 +25,8 @@ static pthread_mutex_t g_BufferCacheLock;
 static std::map<std::string, iFuseBufferCache_t*> g_DeltaMap;
 static std::map<unsigned long, iFuseBufferCache_t*> g_CacheMap;
 
+static int g_blocksize = IFUSE_BUFFER_CACHE_BLOCK_SIZE;
+
 static int _newBufferCache(iFuseBufferCache_t **iFuseBufferCache) {
     iFuseBufferCache_t *tmpIFuseBufferCache = NULL;
 
@@ -41,7 +43,6 @@ static int _newBufferCache(iFuseBufferCache_t **iFuseBufferCache) {
 }
 
 static int _freeBufferCache(iFuseBufferCache_t *iFuseBufferCache) {
-
     assert(iFuseBufferCache != NULL);
 
     iFuseBufferCache->fdId = 0;
@@ -64,19 +65,19 @@ static int _freeBufferCache(iFuseBufferCache_t *iFuseBufferCache) {
 }
 
 size_t getBufferCacheBlockSize() {
-    return IFUSE_BUFFER_CACHE_BLOCK_SIZE;
+    return g_blocksize;
 }
 
 unsigned int getBlockID(off_t off) {
     assert(off >= 0);
 
-    return off / IFUSE_BUFFER_CACHE_BLOCK_SIZE;
+    return off / g_blocksize;
 }
 
 off_t getBlockStartOffset(unsigned int blockID) {
     off_t blockStartOffset = 0;
 
-    blockStartOffset = (off_t)blockID * IFUSE_BUFFER_CACHE_BLOCK_SIZE;
+    blockStartOffset = (off_t)blockID * g_blocksize;
 
     assert(blockStartOffset >= 0);
 
@@ -224,13 +225,13 @@ static int _readBlock(iFuseFd_t *iFuseFd, char *buf, unsigned int blockID) {
         assert(iFuseBufferCache != NULL);
 
         // read from server
-        blockBuffer = (char*)calloc(1, IFUSE_BUFFER_CACHE_BLOCK_SIZE);
+        blockBuffer = (char*)calloc(1, g_blocksize);
         if(blockBuffer == NULL) {
             _freeBufferCache(iFuseBufferCache);
             return SYS_MALLOC_ERR;
         }
 
-        status = iFuseFsRead(iFuseFd, blockBuffer, blockStartOffset, IFUSE_BUFFER_CACHE_BLOCK_SIZE);
+        status = iFuseFsRead(iFuseFd, blockBuffer, blockStartOffset, g_blocksize);
         if (status < 0) {
             iFuseRodsClientLogError(LOG_ERROR, status, "_readBlock: iFuseFsRead of %s error, status = %d",
                     iFuseFd->iRodsPath, status);
@@ -433,6 +434,11 @@ static int _releaseAllCache() {
  * Initialize buffer cache manager
  */
 void iFuseBufferedFSInit() {
+   
+    if(iFuseLibGetOption()->blocksize > 0) {
+        g_blocksize = iFuseLibGetOption()->blocksize;
+    }
+   
     pthread_mutexattr_init(&g_BufferCacheLockAttr);
     pthread_mutexattr_settype(&g_BufferCacheLockAttr, PTHREAD_MUTEX_RECURSIVE);
     pthread_mutex_init(&g_BufferCacheLock, &g_BufferCacheLockAttr);
@@ -609,7 +615,7 @@ int iFuseBufferedFsRead(iFuseFd_t *iFuseFd, char *buf, off_t off, size_t size) {
     size_t readSize = 0;
     size_t remain = 0;
     off_t curOffset = 0;
-    char *blockBuffer = (char*)calloc(1, IFUSE_BUFFER_CACHE_BLOCK_SIZE);
+    char *blockBuffer = (char*)calloc(1, g_blocksize);
     if(blockBuffer == NULL) {
         return SYS_MALLOC_ERR;
     }
@@ -624,7 +630,7 @@ int iFuseBufferedFsRead(iFuseFd_t *iFuseFd, char *buf, off_t off, size_t size) {
     curOffset = off;
     while(remain > 0) {
         off_t inBlockOffset = getInBlockOffset(curOffset);
-        size_t inBlockAvail = IFUSE_BUFFER_CACHE_BLOCK_SIZE - inBlockOffset;
+        size_t inBlockAvail = g_blocksize - inBlockOffset;
         size_t curSize = inBlockAvail > remain ? remain : inBlockAvail;
         size_t blockSize = 0;
 
@@ -660,7 +666,7 @@ int iFuseBufferedFsRead(iFuseFd_t *iFuseFd, char *buf, off_t off, size_t size) {
         remain -= curSize;
         curOffset += curSize;
 
-        if(blockSize < IFUSE_BUFFER_CACHE_BLOCK_SIZE) {
+        if(blockSize < (size_t)g_blocksize) {
             // eof
             break;
         }
@@ -690,7 +696,7 @@ int iFuseBufferedFsWrite(iFuseFd_t *iFuseFd, const char *buf, off_t off, size_t 
     curOffset = off;
     while(remain > 0) {
         off_t inBlockOffset = getInBlockOffset(curOffset);
-        size_t inBlockAvail = IFUSE_BUFFER_CACHE_BLOCK_SIZE - inBlockOffset;
+        size_t inBlockAvail = g_blocksize - inBlockOffset;
         size_t curSize = inBlockAvail > remain ? remain : inBlockAvail;
 
         assert(curSize > 0);

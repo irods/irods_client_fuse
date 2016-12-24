@@ -6,6 +6,7 @@
 #include "iFuse.Lib.RodsClientAPI.hpp"
 #include "iFuse.Lib.Conn.hpp"
 #include "iFuse.Lib.Fd.hpp"
+#include "iFuse.Lib.MetadataCache.hpp"
 #include "iFuse.Lib.Util.hpp"
 #include "rodsClient.h"
 
@@ -34,9 +35,13 @@ void iFuseLibInit() {
     
     iFuseFdInit();
     iFuseDirInit();
+    
+    iFuseMetadataCacheInit();
 }
 
 void iFuseLibDestroy() {
+    iFuseMetadataCacheDestroy();
+    
     iFuseDirDestroy();
     iFuseFdDestroy();
     

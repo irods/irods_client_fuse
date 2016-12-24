@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+#include <string>
+#include <cstring>
+#include "iFuse.Lib.hpp"
 #include "iFuse.Lib.Util.hpp"
 
 time_t iFuseLibGetCurrentTime() {
@@ -21,6 +24,80 @@ void iFuseLibGetStrCurrentTime(char *buff) {
     buff[strlen(buff) - 1] = 0;
 }
 
-double IFuseLibDiffTimeSec(time_t end, time_t beginning) {
+double iFuseLibDiffTimeSec(time_t end, time_t beginning) {
     return difftime(end, beginning);
+}
+
+int iFuseLibSplitPath(const char *srcPath, char *dir, unsigned int maxDirLen, char *file, unsigned int maxFileLen) {
+    const std::string srcPathString(srcPath);
+    if(srcPathString.size() == 0) {
+        *dir = '\0';
+        *file = '\0';
+        return 0;
+    }
+
+    const size_t index_of_last_key = srcPathString.rfind('/');
+    if(std::string::npos == index_of_last_key) {
+        *dir = '\0';
+        rstrcpy(file, srcPathString.c_str(), maxFileLen);
+        return 0;
+    }
+
+    // If dir is the root directory, we want to return the single-character
+    // string consisting of the key, NOT the empty string.
+    const std::string dirPathString = srcPathString.substr( 0, std::max< size_t >( index_of_last_key, 1 ) );
+    const std::string filePathString = srcPathString.substr( index_of_last_key + 1 ) ;
+
+    if(dirPathString.size() >= maxDirLen || filePathString.size() >= maxFileLen) {
+        return -ENOBUFS;
+    }
+
+    rstrcpy(dir, dirPathString.c_str(), maxDirLen);
+    rstrcpy(file, filePathString.c_str(), maxFileLen);
+    return 0;
+}
+
+int iFuseLibJoinPath(const char *dir, const char *file, char *destPath, unsigned int maxDestPathLen) {
+    const std::string dirString(dir);
+    const std::string fileString(file);
+    int file_start = 0;
+    int dir_len = dirString.size();
+    
+    if(fileString.at(0) == '/') {
+        file_start = 1;
+    }
+    
+    if(dirString.at(dir_len - 1) == '/') {
+        dir_len -= 1;
+    }
+    
+    const std::string fileString2 = fileString.substr(file_start);
+    const std::string dirString2 = dirString.substr(0, dir_len);
+    
+    if(dirString2.size() + fileString2.size() >= maxDestPathLen) {
+        return -ENOBUFS;
+    }
+    
+    unsigned int offset = 0;
+    rstrcpy(destPath, dirString2.c_str(), maxDestPathLen);
+    offset += dirString2.size();
+    rstrcpy(destPath + offset, "/", maxDestPathLen - offset);
+    offset += 1;
+    rstrcpy(destPath + offset, fileString2.c_str(), maxDestPathLen - offset);
+    return 0;
+}
+
+int iFuseLibGetFilename(const char *srcPath, char *file, unsigned int maxFileLen) {
+    char myDir[MAX_NAME_LEN];
+    int status;
+
+    status = iFuseLibSplitPath(srcPath, myDir, MAX_NAME_LEN, file, maxFileLen);
+    if(status != 0) {
+        return status;
+    }
+    
+    if(strlen(file) != 0) {
+        return 0;
+    }
+    return -ENOENT;
 }

@@ -30,6 +30,7 @@ static unsigned long g_connIDGen;
 static int g_maxConnNum = IFUSE_MAX_NUM_CONN;
 static int g_connTimeoutSec = IFUSE_FREE_CONN_TIMEOUT_SEC;
 static int g_connKeepAliveSec = IFUSE_FREE_CONN_KEEPALIVE_SEC;
+static int g_connCheckIntervalSec = IFUSE_FREE_CONN_CHECK_INTERVAL_SEC;
 
 /*
  * Lock order :
@@ -244,7 +245,7 @@ static void* _connChecker(void* param) {
 
         for(i=0;i<g_maxConnNum;i++) {
             if(g_InUseConn[i] != NULL) {
-                if(IFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), g_InUseConn[i]->lastKeepAliveTime) >= g_connKeepAliveSec) {
+                if(iFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), g_InUseConn[i]->lastKeepAliveTime) >= g_connKeepAliveSec) {
                     _keepAlive(g_InUseConn[i]);
                     g_InUseConn[i]->lastKeepAliveTime = iFuseLibGetCurrentTime();
                 }
@@ -252,7 +253,7 @@ static void* _connChecker(void* param) {
         }
 
         if(g_InUseShortopConn != NULL) {
-            if(IFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), g_InUseShortopConn->lastKeepAliveTime) >= g_connKeepAliveSec) {
+            if(iFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), g_InUseShortopConn->lastKeepAliveTime) >= g_connKeepAliveSec) {
                 _keepAlive(g_InUseShortopConn);
                 g_InUseShortopConn->lastKeepAliveTime = iFuseLibGetCurrentTime();
             }
@@ -261,7 +262,7 @@ static void* _connChecker(void* param) {
         for(it_connmap=g_InUseOnetimeuseConn.begin();it_connmap!=g_InUseOnetimeuseConn.end();it_connmap++) {
             iFuseConn = it_connmap->second;
 
-            if(IFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), iFuseConn->lastKeepAliveTime) >= g_connKeepAliveSec) {
+            if(iFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), iFuseConn->lastKeepAliveTime) >= g_connKeepAliveSec) {
                 _keepAlive(iFuseConn);
                 iFuseConn->lastKeepAliveTime = iFuseLibGetCurrentTime();
             }
@@ -273,7 +274,7 @@ static void* _connChecker(void* param) {
         for(it_conn=g_FreeConn.begin();it_conn!=g_FreeConn.end();it_conn++) {
             iFuseConn = *it_conn;
 
-            if(IFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), iFuseConn->actTime) >= g_connTimeoutSec) {
+            if(iFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), iFuseConn->actTime) >= g_connTimeoutSec) {
                 removeList.push_back(iFuseConn);
             }
         }
@@ -287,7 +288,7 @@ static void* _connChecker(void* param) {
         }
 
         if(g_FreeShortopConn != NULL) {
-            if(IFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), g_FreeShortopConn->actTime) >= g_connTimeoutSec) {
+            if(iFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), g_FreeShortopConn->actTime) >= g_connTimeoutSec) {
                 _freeConn(g_FreeShortopConn);
                 g_FreeShortopConn = NULL;
             }
@@ -295,7 +296,7 @@ static void* _connChecker(void* param) {
 
         pthread_mutex_unlock(&g_ConnectedConnLock);
 
-        sleep(IFUSE_FREE_CONN_CHECK_PERIOD);
+        sleep(g_connCheckIntervalSec);
     }
 
     return NULL;
@@ -338,14 +339,14 @@ int iFuseConnTest() {
         return -1;
     }
     
-    iFuseRodsClientLog(LOG_DEBUG, "checkICatHost: make a test connection to iRODS host - %s:%d", myRodsEnv->rodsHost, myRodsEnv->rodsPort);
+    iFuseRodsClientLog(LOG_DEBUG, "iFuseConnTest: make a test connection to iRODS host - %s:%d", myRodsEnv->rodsHost, myRodsEnv->rodsPort);
     
     conn = iFuseRodsClientConnect(myRodsEnv->rodsHost, myRodsEnv->rodsPort,
                 myRodsEnv->rodsUserName, myRodsEnv->rodsZone, NO_RECONN, &errMsg);
     if (conn == NULL) {
         // failed
         iFuseRodsClientLogError(LOG_ERROR, errMsg.status,
-                "checkICatHost: iFuseRodsClientConnect failure %s", errMsg.msg);
+                "iFuseConnTest: iFuseRodsClientConnect failure %s", errMsg.msg);
         fprintf(stderr, "Cannot connect to iRODS Host - %s:%d error - %s\n", myRodsEnv->rodsHost, myRodsEnv->rodsPort, errMsg.msg);
         if (errMsg.status < 0) {
             return errMsg.status;
@@ -354,7 +355,7 @@ int iFuseConnTest() {
         }
     }
     
-    iFuseRodsClientLog(LOG_DEBUG, "checkICatHost: logging in to iRODS - account %s", myRodsEnv->rodsUserName);
+    iFuseRodsClientLog(LOG_DEBUG, "iFuseConnTest: logging in to iRODS - account %s", myRodsEnv->rodsUserName);
 
     status = iFuseRodsClientLogin(conn);
     if (status != 0) {
@@ -389,6 +390,10 @@ void iFuseConnInit() {
     if(iFuseLibGetOption()->connKeepAliveSec > 0) {
         g_connKeepAliveSec = iFuseLibGetOption()->connKeepAliveSec;
     }
+    
+    if(iFuseLibGetOption()->connCheckIntervalSec > 0) {
+        g_connCheckIntervalSec = iFuseLibGetOption()->connCheckIntervalSec;
+   }
 
     pthread_mutexattr_init(&g_ConnectedConnLockAttr);
     pthread_mutexattr_settype(&g_ConnectedConnLockAttr, PTHREAD_MUTEX_RECURSIVE);

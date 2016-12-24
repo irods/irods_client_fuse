@@ -3,7 +3,7 @@
 /*** This code is rewritten by Illyoung Choi (iychoi@email.arizona.edu)    ***
  *** funded by iPlantCollaborative (www.iplantcollaborative.org).          ***/
 #ifndef IFUSE_LIB_HPP
-#define	IFUSE_LIB_HPP
+#define IFUSE_LIB_HPP
 
 #include "rodsClient.h"
 
@@ -20,9 +20,16 @@ typedef struct IFuseOpt {
     bool foreground;
     bool bufferedFS;
     bool preload;
+    bool cacheMetadata;
     int maxConn;
+    int blocksize;
+    bool connReuse;
     int connTimeoutSec;
     int connKeepAliveSec;
+    int connCheckIntervalSec;
+    int rodsapiTimeoutSec;
+    int preloadNumBlocks;
+    int metadataCacheTimeoutSec;
     char *mountpoint;
     iFuseExtendedOpt_t *extendedOpts;
 } iFuseOpt_t;
@@ -37,4 +44,3 @@ void iFuseLibDestroy();
 
 
 #endif	/* IFUSE_LIB_HPP */
-

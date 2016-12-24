@@ -3,8 +3,9 @@
 /*** This code is rewritten by Illyoung Choi (iychoi@email.arizona.edu)    ***
  *** funded by iPlantCollaborative (www.iplantcollaborative.org).          ***/
 #ifndef IFUSE_FS_HPP
-#define	IFUSE_FS_HPP
+#define IFUSE_FS_HPP
 
+#include <sys/stat.h>
 #include "iFuse.Lib.hpp"
 #include "iFuse.Lib.Fd.hpp"
 
@@ -34,6 +35,4 @@ int iFuseFsRename(const char *iRodsFromPath, const char *iRodsToPath);
 int iFuseFsTruncate(const char *iRodsPath, off_t size);
 int iFuseFsChmod(const char *iRodsPath, mode_t mode);
 
-
-#endif	/* IFUSE_BASEOPS_HPP */
-
+#endif	/* IFUSE_FS_HPP */

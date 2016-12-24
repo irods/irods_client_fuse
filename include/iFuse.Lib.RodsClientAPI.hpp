@@ -3,7 +3,7 @@
 /*** This code is rewritten by Illyoung Choi (iychoi@email.arizona.edu)    ***
  *** funded by iPlantCollaborative (www.iplantcollaborative.org).          ***/
 #ifndef IFUSE_LIB_RODSCLIENTAPI_HPP
-#define	IFUSE_LIB_RODSCLIENTAPI_HPP
+#define IFUSE_LIB_RODSCLIENTAPI_HPP
 
 #include <pthread.h>
 #include "rodsClient.h"
@@ -80,4 +80,3 @@ void iFuseRodsClientLogToFile(int level, const char *formatStr, ...);
 void iFuseRodsClientLogErrorToFile(int level, int errCode, char *formatStr, ...);
 
 #endif	/* IFUSE_LIB_RODSCLIENTAPI_HPP */
-

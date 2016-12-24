@@ -165,6 +165,13 @@ static int _freeDir(iFuseDir_t *iFuseDir) {
         free(iFuseDir->handle);
         iFuseDir->handle = NULL;
     }
+    
+    if(iFuseDir->cachedEntries != NULL) {
+        free(iFuseDir->cachedEntries);
+        iFuseDir->cachedEntries = NULL;
+    }
+    
+    iFuseDir->cachedEntryBufferLen = 0;
 
     free(iFuseDir);
     return 0;
@@ -507,6 +514,54 @@ int iFuseDirOpen(iFuseDir_t **iFuseDir, iFuseConn_t *iFuseConn, const char* iRod
 }
 
 /*
+ * Open a new directory descriptor
+ */
+int iFuseDirOpenWithCache(iFuseDir_t **iFuseDir, const char* iRodsPath, const char* cachedEntries, unsigned int entryBufferLen) {
+    int status = 0;
+    iFuseDir_t *tmpIFuseDesc;
+
+    assert(iFuseDir != NULL);
+    assert(iRodsPath != NULL);
+    
+    *iFuseDir = NULL;
+
+    pthread_mutex_lock(&g_AssignedDirLock);
+    
+    tmpIFuseDesc = (iFuseDir_t *) calloc(1, sizeof ( iFuseDir_t));
+    if (tmpIFuseDesc == NULL) {
+        *iFuseDir = NULL;
+        pthread_mutex_unlock(&g_AssignedDirLock);
+        return SYS_MALLOC_ERR;
+    }
+    
+    tmpIFuseDesc->ddId = _genNextDdID();
+    tmpIFuseDesc->conn = NULL;
+    tmpIFuseDesc->iRodsPath = strdup(iRodsPath);
+    tmpIFuseDesc->handle = NULL;
+    tmpIFuseDesc->cachedEntries = (char *) calloc(1, entryBufferLen);
+    if (tmpIFuseDesc->cachedEntries == NULL) {
+        *iFuseDir = NULL;
+        free(tmpIFuseDesc->iRodsPath);
+        free(tmpIFuseDesc);
+        pthread_mutex_unlock(&g_AssignedDirLock);
+        return SYS_MALLOC_ERR;
+    }
+    memcpy(tmpIFuseDesc->cachedEntries, cachedEntries, entryBufferLen);
+    tmpIFuseDesc->cachedEntryBufferLen = entryBufferLen;
+    
+    pthread_mutexattr_init(&tmpIFuseDesc->lockAttr);
+    pthread_mutexattr_settype(&tmpIFuseDesc->lockAttr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&tmpIFuseDesc->lock, &tmpIFuseDesc->lockAttr);
+    
+    *iFuseDir = tmpIFuseDesc;
+    
+    g_AssignedDir.push_back(tmpIFuseDesc);
+    
+    pthread_mutex_unlock(&g_AssignedDirLock);
+    return status;
+}
+
+/*
  * Close file descriptor
  */
 int iFuseFdClose(iFuseFd_t *iFuseFd) {
@@ -532,8 +587,6 @@ int iFuseDirClose(iFuseDir_t *iFuseDir) {
     int status = 0;
     
     assert(iFuseDir != NULL);
-    assert(iFuseDir->conn != NULL);
-    assert(iFuseDir->handle != NULL);
     
     pthread_mutex_lock(&g_AssignedDirLock);
     

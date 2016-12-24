@@ -41,6 +41,7 @@ add_executable(
   ${CMAKE_SOURCE_DIR}/src/iFuse.FS.cpp
   ${CMAKE_SOURCE_DIR}/src/iFuse.Lib.Conn.cpp
   ${CMAKE_SOURCE_DIR}/src/iFuse.Lib.Fd.cpp
+  ${CMAKE_SOURCE_DIR}/src/iFuse.Lib.MetadataCache.cpp
   ${CMAKE_SOURCE_DIR}/src/iFuse.Lib.RodsClientAPI.cpp
   ${CMAKE_SOURCE_DIR}/src/iFuse.Lib.Util.cpp
   ${CMAKE_SOURCE_DIR}/src/iFuse.Lib.cpp
