@@ -3,7 +3,7 @@
 /*** This code is written by Illyoung Choi (iychoi@email.arizona.edu)      ***
  *** funded by iPlantCollaborative (www.iplantcollaborative.org).          ***/
 #ifndef IFUSE_PRELOAD_HPP
-#define	IFUSE_PRELOAD_HPP
+#define IFUSE_PRELOAD_HPP
 
 #include <list>
 #include <pthread.h>
@@ -49,4 +49,3 @@ int iFusePreloadClose(iFuseFd_t *iFuseFd);
 int iFusePreloadRead(iFuseFd_t *iFuseFd, char *buf, off_t off, size_t size);
 
 #endif	/* IFUSE_PRELOAD_HPP */
-

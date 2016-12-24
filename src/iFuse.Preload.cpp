@@ -24,6 +24,8 @@ static pthread_mutex_t g_PreloadLock;
 
 static std::map<unsigned long, iFusePreload_t*> g_PreloadMap;
 
+static int g_preloadNumBlocks = IFUSE_PRELOAD_PBLOCK_NUM;
+
 static int _newPreloadPBlock(const char *iRodsPath, iFusePreloadPBlock_t **iFusePreloadPBlock) {
     iFusePreloadPBlock_t *tmpIFusePreloadPBlock = NULL;
 
@@ -62,6 +64,7 @@ static int _newPreload(iFusePreload_t **iFusePreload) {
     tmpIFusePreload->pblocks = new std::list<iFusePreloadPBlock_t*>();
     if(tmpIFusePreload->pblocks == NULL) {
         *iFusePreload = NULL;
+        free(tmpIFusePreload);
         return SYS_MALLOC_ERR;
     }
 
@@ -279,7 +282,7 @@ int _readPreload(iFusePreload_t *iFusePreload, char *buf, unsigned int blockID) 
     iFusePreloadPBlock_t *iFusePreloadPBlock = NULL;
     iFuseFd_t *iFuseFd = NULL;
     bool hasBlock = false;
-    bool *pblockExistance = (bool*)calloc(IFUSE_PRELOAD_PBLOCK_NUM, sizeof(bool));
+    bool *pblockExistance = (bool*)calloc(g_preloadNumBlocks, sizeof(bool));
     int i;
 
     assert(iFusePreload != NULL);
@@ -289,7 +292,7 @@ int _readPreload(iFusePreload_t *iFusePreload, char *buf, unsigned int blockID) 
         return SYS_MALLOC_ERR;
     }
 
-    bzero(pblockExistance, IFUSE_PRELOAD_PBLOCK_NUM * sizeof(bool));
+    bzero(pblockExistance, g_preloadNumBlocks * sizeof(bool));
 
     pthread_mutex_lock(&iFusePreload->lock);
 
@@ -301,7 +304,7 @@ int _readPreload(iFusePreload_t *iFusePreload, char *buf, unsigned int blockID) 
             // has block
             hasBlock = true;
         } else if(blockID > iFusePreloadPBlock->blockID ||
-                blockID + IFUSE_PRELOAD_PBLOCK_NUM < iFusePreloadPBlock->blockID) {
+                blockID + g_preloadNumBlocks < iFusePreloadPBlock->blockID) {
             // remove old blocks
             // if block id is less than current block id
             // or block id is far larger than current block id (for backward read)
@@ -310,7 +313,7 @@ int _readPreload(iFusePreload_t *iFusePreload, char *buf, unsigned int blockID) 
             removeList.push_back(iFusePreloadPBlock);
         } else {
             // preloaded blocks
-            if(iFusePreloadPBlock->blockID - blockID - 1 < IFUSE_PRELOAD_PBLOCK_NUM) {
+            if(iFusePreloadPBlock->blockID - blockID - 1 < (unsigned int)g_preloadNumBlocks) {
                 pblockExistance[iFusePreloadPBlock->blockID - blockID - 1] = true;
             }
         }
@@ -415,7 +418,7 @@ int _readPreload(iFusePreload_t *iFusePreload, char *buf, unsigned int blockID) 
         }
     }
 
-    for(i=0;i<IFUSE_PRELOAD_PBLOCK_NUM;i++) {
+    for(i=0;i<g_preloadNumBlocks;i++) {
         if(!pblockExistance[i]) {
             // start preload
             iFuseFd = NULL;
@@ -450,6 +453,10 @@ int _readPreload(iFusePreload_t *iFusePreload, char *buf, unsigned int blockID) 
  * Initialize preload manager
  */
 void iFusePreloadInit() {
+    if(iFuseLibGetOption()->preloadNumBlocks > 0) {
+        g_preloadNumBlocks = iFuseLibGetOption()->preloadNumBlocks;
+    }
+    
     pthread_mutexattr_init(&g_PreloadLockAttr);
     pthread_mutexattr_settype(&g_PreloadLockAttr, PTHREAD_MUTEX_RECURSIVE);
     pthread_mutex_init(&g_PreloadLock, &g_PreloadLockAttr);
@@ -493,7 +500,7 @@ int iFusePreloadOpen(const char *iRodsPath, iFuseFd_t **iFuseFd, int openFlag) {
 
         // start preload thread - only when the file is opened for read
         if((openFlag & O_ACCMODE) == O_RDONLY || (openFlag & O_ACCMODE) == O_RDWR) {
-            for(i=0;i<IFUSE_PRELOAD_PBLOCK_NUM;i++) {
+            for(i=0;i<g_preloadNumBlocks;i++) {
                 _startPreload(iFusePreload, i, NULL);
             }
         }

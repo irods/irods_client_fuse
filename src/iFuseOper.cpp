@@ -11,6 +11,7 @@
 #include "iFuse.Preload.hpp"
 #include "iFuse.BufferedFS.hpp"
 #include "iFuse.FS.hpp"
+#include "iFuse.Lib.hpp"
 #include "iFuse.Lib.Fd.hpp"
 #include "iFuse.Lib.Conn.hpp"
 #include "iFuse.Lib.Util.hpp"
@@ -465,8 +466,6 @@ int iFuseReadDir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offs
     assert(fi->fh != 0);
     
     iFuseDir = (iFuseDir_t *)fi->fh;
-    
-    assert(iFuseDir->handle != NULL);
     
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);

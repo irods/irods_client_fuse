@@ -7,20 +7,28 @@
 #include <errno.h>
 #include <time.h>
 #include <assert.h>
+#include <pthread.h>
+#include <string>
 #include "iFuse.FS.hpp"
 #include "iFuse.Lib.hpp"
 #include "iFuse.Lib.RodsClientAPI.hpp"
 #include "iFuse.Lib.Fd.hpp"
 #include "iFuse.Lib.Conn.hpp"
+#include "iFuse.Lib.MetadataCache.hpp"
 #include "iFuse.Lib.Util.hpp"
 #include "sockComm.h"
 
-#ifdef IRODS_FUSE_USE_MYSQL_ICAT_DRIVER_PATCH
-#else
-#warning IRODS_FUSE_USE_MYSQL_ICAT_DRIVER_PATCH is not set. This will increase performance in filesystem operations but may make filesystem inconsistent with MYSQL iCAT database driver.
-#endif
+static bool g_connReuse = false;
+static bool g_cacheMetadata = true;
 
-static int _fillFileStat(struct stat *stbuf, uint mode, rodsLong_t size, uint ctime, uint mtime, uint atime) {
+static int _safeAtoi(char *str) {
+    if(str == NULL) {
+        return 0;
+    }
+    return atoi(str);
+}
+
+static int _fillFileStat(struct stat *stbuf, uint ino, uint mode, rodsLong_t size, uint ctime, uint mtime, uint atime) {
     if ( mode >= 0100 ) {
         stbuf->st_mode = S_IFREG | mode;
     } else {
@@ -32,7 +40,7 @@ static int _fillFileStat(struct stat *stbuf, uint mode, rodsLong_t size, uint ct
     stbuf->st_blocks = ( stbuf->st_size / FILE_BLOCK_SIZE ) + 1;
 
     stbuf->st_nlink = 1;
-    stbuf->st_ino = 0;
+    stbuf->st_ino = ino;
     stbuf->st_ctime = ctime;
     stbuf->st_mtime = mtime;
     stbuf->st_atime = atime;
@@ -42,12 +50,12 @@ static int _fillFileStat(struct stat *stbuf, uint mode, rodsLong_t size, uint ct
     return 0;
 }
 
-static int _fillDirStat(struct stat *stbuf, uint ctime, uint mtime, uint atime) {
+static int _fillDirStat(struct stat *stbuf, uint ino, uint ctime, uint mtime, uint atime) {
     stbuf->st_mode = S_IFDIR | DEF_DIR_MODE;
     stbuf->st_size = DIR_SIZE;
 
     stbuf->st_nlink = 2;
-    stbuf->st_ino = 0;
+    stbuf->st_ino = ino;
     stbuf->st_ctime = ctime;
     stbuf->st_mtime = mtime;
     stbuf->st_atime = atime;
@@ -58,13 +66,15 @@ static int _fillDirStat(struct stat *stbuf, uint ctime, uint mtime, uint atime) 
 }
 
 /*
- * Initialize buffer cache manager
+ * Initialize filesystem
  */
 void iFuseFsInit() {
+    g_connReuse = iFuseLibGetOption()->connReuse;
+    g_cacheMetadata = iFuseLibGetOption()->cacheMetadata;
 }
 
 /*
- * Destroy buffer cache manager
+ * Destroy filesystem
  */
 void iFuseFsDestroy() {
 }
@@ -80,13 +90,26 @@ int iFuseFsGetAttr(const char *iRodsPath, struct stat *stbuf) {
 
     iFuseRodsClientLog(LOG_DEBUG, "iFuseFsGetAttr: %s", iRodsPath);
 
+    // check stat cache if available
+    if(g_cacheMetadata) {
+        iFuseMetadataCacheClearExpiredStat(false);
+      
+        status = iFuseMetadataCacheGetStat(iRodsPath, stbuf);
+        if(status == 0) {
+            // has stat cache
+            iFuseRodsClientLog(LOG_DEBUG, "iFuseFsGetAttr: use cached stat of %s", iRodsPath);
+            return 0;
+        }
+    }
+
     // temporarily obtain a connection
     // must be marked unused and release lock after use
-#ifdef IRODS_FUSE_USE_MYSQL_ICAT_DRIVER_PATCH
-    status = iFuseConnGetAndUse(&iFuseConn, IFUSE_CONN_TYPE_FOR_ONETIMEUSE);
-#else
-    status = iFuseConnGetAndUse(&iFuseConn, IFUSE_CONN_TYPE_FOR_SHORTOP);
-#endif
+    if(g_connReuse) {
+        status = iFuseConnGetAndUse(&iFuseConn, IFUSE_CONN_TYPE_FOR_SHORTOP);
+    } else {
+        status = iFuseConnGetAndUse(&iFuseConn, IFUSE_CONN_TYPE_FOR_ONETIMEUSE);
+    }
+    
     if (status < 0) {
         iFuseRodsClientLogError(LOG_ERROR, status, "iFuseFsGetAttr: iFuseConnGetAndUse of %s error", iRodsPath);
         return -EIO;
@@ -144,21 +167,31 @@ int iFuseFsGetAttr(const char *iRodsPath, struct stat *stbuf) {
 
     if (rodsObjStatOut->objType == COLL_OBJ_T) {
         _fillDirStat(stbuf,
-                atoi(rodsObjStatOut->createTime),
-                atoi(rodsObjStatOut->modifyTime),
-                atoi(rodsObjStatOut->modifyTime));
-
+                     _safeAtoi(rodsObjStatOut->dataId),
+                     _safeAtoi(rodsObjStatOut->createTime),
+                     _safeAtoi(rodsObjStatOut->modifyTime),
+                     _safeAtoi(rodsObjStatOut->modifyTime));
+                     
+        if(g_cacheMetadata) {
+            iFuseMetadataCachePutStat(iRodsPath, stbuf);
+        }
+        
         status = 0;
     } else if (rodsObjStatOut->objType == UNKNOWN_OBJ_T) {
         status = -ENOENT;
     } else {
         _fillFileStat(stbuf,
-                rodsObjStatOut->dataMode,
-                rodsObjStatOut->objSize,
-                atoi(rodsObjStatOut->createTime),
-                atoi(rodsObjStatOut->modifyTime),
-                atoi(rodsObjStatOut->modifyTime));
-
+                      _safeAtoi(rodsObjStatOut->dataId),
+                      rodsObjStatOut->dataMode,
+                      rodsObjStatOut->objSize,
+                      _safeAtoi(rodsObjStatOut->createTime),
+                      _safeAtoi(rodsObjStatOut->modifyTime),
+                      _safeAtoi(rodsObjStatOut->modifyTime));
+                      
+        if(g_cacheMetadata) {
+            iFuseMetadataCachePutStat(iRodsPath, stbuf);
+        }
+        
         status = 0;
     }
 
@@ -181,11 +214,12 @@ int iFuseFsOpen(const char *iRodsPath, iFuseFd_t **iFuseFd, int openFlag) {
     // obtain a connection for a file
     // must be released lock after use
     // while the file is opened, connection is in-use status.
-#ifdef IRODS_FUSE_USE_MYSQL_ICAT_DRIVER_PATCH
-    status = iFuseConnGetAndUse(&iFuseConn, IFUSE_CONN_TYPE_FOR_ONETIMEUSE);
-#else
-    status = iFuseConnGetAndUse(&iFuseConn, IFUSE_CONN_TYPE_FOR_FILE_IO);
-#endif
+    if(g_connReuse) {
+        status = iFuseConnGetAndUse(&iFuseConn, IFUSE_CONN_TYPE_FOR_FILE_IO);
+    } else {
+        status = iFuseConnGetAndUse(&iFuseConn, IFUSE_CONN_TYPE_FOR_ONETIMEUSE);
+    }
+
     if (status < 0) {
         iFuseRodsClientLogError(LOG_ERROR, status, "iFuseFsOpen: iFuseConnGetAndUse of %s error",
                 iRodsPath);
@@ -197,6 +231,13 @@ int iFuseFsOpen(const char *iRodsPath, iFuseFd_t **iFuseFd, int openFlag) {
         iFuseRodsClientLogError(LOG_ERROR, status, "iFuseFsOpen: iFuseFdOpen of %s error, status = %d",
                 iRodsPath, status);
         return -ENOENT;
+    }
+    
+    // clear stat cache
+    if(g_cacheMetadata) {
+        if((openFlag & O_ACCMODE) != O_RDONLY) {
+            iFuseMetadataCacheRemoveStat(iRodsPath);
+        }
     }
 
     return 0;
@@ -227,6 +268,14 @@ int iFuseFsClose(iFuseFd_t *iFuseFd) {
 
     free(iRodsPath);
     iFuseConnUnuse(iFuseConn);
+    
+    // clear stat cache
+    if(g_cacheMetadata) {
+        if((iFuseFd->openFlag & O_ACCMODE) != O_RDONLY) {
+            iFuseMetadataCacheRemoveStat(iFuseFd->iRodsPath);
+        }
+    }
+    
     return 0;
 }
 
@@ -554,6 +603,11 @@ int iFuseFsFlush(iFuseFd_t *iFuseFd) {
                 iFuseFd->iRodsPath, status);
         return -ENOENT;
     }
+    
+    // clear stat cache
+    if(g_cacheMetadata) {
+        iFuseMetadataCacheRemoveStat(iFuseFd->iRodsPath);
+    }
 
     return 0;
 }
@@ -663,6 +717,15 @@ int iFuseFsCreate(const char *iRodsPath, mode_t mode) {
 
     iFuseConnUnlock(iFuseConn);
     iFuseConnUnuse(iFuseConn);
+    
+    // clear stat cache
+    if(g_cacheMetadata) {
+        iFuseMetadataCacheRemoveStat(iRodsPath);
+        
+        // Add an entry to parent dir
+        iFuseMetadataCacheAddDirEntryIfFresh2(iRodsPath);
+    }
+    
     return status;
 }
 
@@ -729,38 +792,82 @@ int iFuseFsUnlink(const char *iRodsPath) {
 
     iFuseConnUnlock(iFuseConn);
     iFuseConnUnuse(iFuseConn);
+    
+    // clear stat cache
+    if(g_cacheMetadata) {
+        iFuseMetadataCacheRemoveStat(iRodsPath);
+        
+        // remove file from parent dir
+        iFuseMetadataCacheRemoveDirEntry2(iRodsPath);
+    }
+    
     return 0;
 }
 
 int iFuseFsOpenDir(const char *iRodsPath, iFuseDir_t **iFuseDir) {
     int status = 0;
     iFuseConn_t *iFuseConn = NULL;
+    char *entries = NULL;
+    unsigned int entrybufferLen = 0;
+    bool hasCache = false;
 
     assert(iRodsPath != NULL);
     assert(iFuseDir != NULL);
 
     iFuseRodsClientLog(LOG_DEBUG, "iFuseFsOpenDir: %s", iRodsPath);
 
-    // obtain a connection for a file
-    // must be released lock after use
-    // while the file is opened, connection is in-use status.
-#ifdef IRODS_FUSE_USE_MYSQL_ICAT_DRIVER_PATCH
-    status = iFuseConnGetAndUse(&iFuseConn, IFUSE_CONN_TYPE_FOR_ONETIMEUSE);
-#else
-    status = iFuseConnGetAndUse(&iFuseConn, IFUSE_CONN_TYPE_FOR_FILE_IO);
-#endif
-    if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, "iFuseFsOpenDir: iFuseConnGetAndUse of %s error",
-                iRodsPath);
-        return -EIO;
+    // check dir entry cache if available
+    if(g_cacheMetadata) {
+        iFuseMetadataCacheClearExpiredDir(false);
+        
+        status = iFuseMetadataCacheGetDirEntry(iRodsPath, &entries, &entrybufferLen);
+        if(status == 0) {
+            // has dir entry cache
+            iFuseRodsClientLog(LOG_DEBUG, "iFuseFsOpenDir: use cached dir entries of %s", iRodsPath);
+            hasCache = true;
+        }
     }
 
-    status = iFuseDirOpen(iFuseDir, iFuseConn, iRodsPath);
-    if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, "iFuseFsOpenDir: iFuseDirOpen of %s error, status = %d",
-                iRodsPath, status);
-        iFuseConnUnlock(iFuseConn);
-        return -ENOENT;
+    if(hasCache) {
+        // if has entry cache, don't establish connection and request dir open 
+        status = iFuseDirOpenWithCache(iFuseDir, iRodsPath, entries, entrybufferLen);
+        if (status < 0) {
+            iFuseRodsClientLogError(LOG_ERROR, status, "iFuseFsOpenDir: iFuseDirOpenWithCache of %s error, status = %d",
+                    iRodsPath, status);
+            if(entries != NULL) {
+                free(entries);
+                entries = NULL;
+            }
+            return -ENOENT;
+        }
+        
+        if(entries != NULL) {
+            free(entries);
+            entries = NULL;
+        }
+    } else {
+        // obtain a connection for a file
+        // must be released lock after use
+        // while the file is opened, connection is in-use status.
+        if(g_connReuse) {
+            status = iFuseConnGetAndUse(&iFuseConn, IFUSE_CONN_TYPE_FOR_FILE_IO);
+        } else {
+            status = iFuseConnGetAndUse(&iFuseConn, IFUSE_CONN_TYPE_FOR_ONETIMEUSE);
+        }
+
+        if (status < 0) {
+            iFuseRodsClientLogError(LOG_ERROR, status, "iFuseFsOpenDir: iFuseConnGetAndUse of %s error",
+                    iRodsPath);
+            return -EIO;
+        }
+
+        status = iFuseDirOpen(iFuseDir, iFuseConn, iRodsPath);
+        if (status < 0) {
+            iFuseRodsClientLogError(LOG_ERROR, status, "iFuseFsOpenDir: iFuseDirOpen of %s error, status = %d",
+                    iRodsPath, status);
+            iFuseConnUnlock(iFuseConn);
+            return -ENOENT;
+        }
     }
 
     return 0;
@@ -773,7 +880,6 @@ int iFuseFsCloseDir(iFuseDir_t *iFuseDir) {
 
     assert(iFuseDir != NULL);
     assert(iFuseDir->iRodsPath != NULL);
-    assert(iFuseDir->handle != NULL);
 
     iFuseRodsClientLog(LOG_DEBUG, "iFuseFsCloseDir: %s", iFuseDir->iRodsPath);
 
@@ -790,7 +896,11 @@ int iFuseFsCloseDir(iFuseDir_t *iFuseDir) {
     }
 
     free(iRodsPath);
-    iFuseConnUnuse(iFuseConn);
+    
+    if(iFuseConn != NULL) {
+        iFuseConnUnuse(iFuseConn);
+    }
+    
     return 0;
 }
 
@@ -798,14 +908,36 @@ int iFuseFsReadDir(iFuseDir_t *iFuseDir, iFuseDirFiller filler, void *buf, off_t
     int status = 0;
     iFuseConn_t *iFuseConn = NULL;
     collEnt_t collEnt;
-
+    struct stat stbuf;
+    char *entryPtr = NULL;
+    
     assert(iFuseDir != NULL);
     assert(iFuseDir->iRodsPath != NULL);
-    assert(iFuseDir->handle != NULL);
-
+    
     UNUSED(offset);
 
     iFuseRodsClientLog(LOG_DEBUG, "iFuseFsReadDir: %s", iFuseDir->iRodsPath);
+
+    // check dir entry cache if available
+    if(g_cacheMetadata) {
+        if(iFuseDir->cachedEntries != NULL) {
+            // has dir entry cache
+            iFuseRodsClientLog(LOG_DEBUG, "iFuseFsReadDir: use cached dir entries of %s", iFuseDir->iRodsPath);
+            
+            entryPtr = iFuseDir->cachedEntries;
+            while(entryPtr < iFuseDir->cachedEntries + iFuseDir->cachedEntryBufferLen) {
+                int entryLen = strlen(entryPtr);
+                if(entryLen > 0) {
+                    filler(buf, entryPtr, NULL, 0);
+                }
+                entryPtr += entryLen + 1;
+            }
+            return 0;
+        }
+        
+        // clear
+        iFuseMetadataCacheRemoveDir(iFuseDir->iRodsPath);
+    }
 
     iFuseConn = iFuseDir->conn;
 
@@ -813,21 +945,45 @@ int iFuseFsReadDir(iFuseDir_t *iFuseDir, iFuseDirFiller filler, void *buf, off_t
     iFuseConnLock(iFuseConn);
 
     bzero(&collEnt, sizeof ( collEnt_t));
-
+    
     while ((status = iFuseRodsClientReadCollection(iFuseConn->conn, iFuseDir->handle, &collEnt)) >= 0) {
         if (collEnt.objType == DATA_OBJ_T) {
+            if(g_cacheMetadata) {
+                bzero(&stbuf, sizeof ( struct stat));
+                _fillFileStat(&stbuf,
+                              _safeAtoi(collEnt.dataId),
+                              collEnt.dataMode,
+                              collEnt.dataSize,
+                              _safeAtoi(collEnt.createTime),
+                              _safeAtoi(collEnt.modifyTime),
+                              _safeAtoi(collEnt.modifyTime));
+                iFuseMetadataCachePutStat2(iFuseDir->iRodsPath, collEnt.dataName, &stbuf);
+                iFuseMetadataCacheAddDirEntry(iFuseDir->iRodsPath, collEnt.dataName);
+            }
+            
             filler(buf, collEnt.dataName, NULL, 0);
         } else if (collEnt.objType == COLL_OBJ_T) {
-            char myDir[MAX_NAME_LEN];
-            char mySubDir[MAX_NAME_LEN];
+            char filename[MAX_NAME_LEN];
+            int status2;
 
-            splitPathByKey(collEnt.collName, myDir, MAX_NAME_LEN, mySubDir, MAX_NAME_LEN, '/');
-            if (mySubDir[0] != '\0') {
-                filler(buf, mySubDir, NULL, 0);
+            status2 = iFuseLibGetFilename(collEnt.collName, filename, MAX_NAME_LEN);
+            if (status2 == 0) {
+                if(g_cacheMetadata) {
+                    bzero(&stbuf, sizeof ( struct stat));
+                    _fillDirStat(&stbuf,
+                                 _safeAtoi(collEnt.dataId),
+                                 _safeAtoi(collEnt.createTime),
+                                 _safeAtoi(collEnt.modifyTime),
+                                 _safeAtoi(collEnt.modifyTime));
+                    iFuseMetadataCachePutStat2(iFuseDir->iRodsPath, filename, &stbuf);
+                    iFuseMetadataCacheAddDirEntry(iFuseDir->iRodsPath, filename);
+                }
+                
+                filler(buf, filename, NULL, 0);
             }
         }
     }
-
+    
     iFuseConnUnlock(iFuseConn);
     iFuseDirUnlock(iFuseDir);
     return 0;
@@ -887,6 +1043,16 @@ int iFuseFsMakeDir(const char *iRodsPath, mode_t mode) {
 
     iFuseConnUnlock(iFuseConn);
     iFuseConnUnuse(iFuseConn);
+    
+    // clear stat cache
+    if(g_cacheMetadata) {
+        iFuseMetadataCacheRemoveStat(iRodsPath);
+        
+        // add dir
+        iFuseMetadataCacheRemoveDir(iRodsPath);
+        iFuseMetadataCacheAddDirEntryIfFresh2(iRodsPath);
+    }
+    
     return status;
 }
 
@@ -969,6 +1135,16 @@ int iFuseFsRemoveDir(const char *iRodsPath) {
 
     iFuseConnUnlock(iFuseConn);
     iFuseConnUnuse(iFuseConn);
+    
+    // clear stat cache
+    if(g_cacheMetadata) {
+        iFuseMetadataCacheRemoveStat(iRodsPath);
+        
+        // remove dir
+        iFuseMetadataCacheRemoveDir(iRodsPath);
+        iFuseMetadataCacheRemoveDirEntry2(iRodsPath);
+    }
+    
     return 0;
 }
 
@@ -1038,6 +1214,21 @@ int iFuseFsRename(const char *iRodsFromPath, const char *iRodsToPath) {
 
     iFuseConnUnlock(iFuseConn);
     iFuseConnUnuse(iFuseConn);
+    
+    // clear stat cache
+    if(g_cacheMetadata) {
+        iFuseMetadataCacheRemoveStat(iRodsFromPath);
+        iFuseMetadataCacheRemoveStat(iRodsToPath);
+        
+        // perhaps given path can be a directory
+        iFuseMetadataCacheRemoveDir(iRodsFromPath);
+        iFuseMetadataCacheRemoveDir(iRodsToPath);
+        
+        // resync parent dir
+        iFuseMetadataCacheRemoveDirEntry2(iRodsFromPath);
+        iFuseMetadataCacheAddDirEntryIfFresh2(iRodsToPath);
+    }
+    
     return 0;
 }
 
@@ -1049,7 +1240,7 @@ int iFuseFsTruncate(const char *iRodsPath, off_t size) {
     assert(iRodsPath != NULL);
 
     iFuseRodsClientLog(LOG_DEBUG, "iFuseFsTruncate: %s", iRodsPath);
-
+    
     // temporarily obtain a connection
     // must be marked unused and release lock after use
     status = iFuseConnGetAndUse(&iFuseConn, IFUSE_CONN_TYPE_FOR_SHORTOP);
@@ -1096,6 +1287,12 @@ int iFuseFsTruncate(const char *iRodsPath, off_t size) {
 
     iFuseConnUnlock(iFuseConn);
     iFuseConnUnuse(iFuseConn);
+    
+    // clear stat cache
+    if(g_cacheMetadata) {
+        iFuseMetadataCacheRemoveStat(iRodsPath);
+    }
+    
     return 0;
 }
 
@@ -1110,7 +1307,7 @@ int iFuseFsChmod(const char *iRodsPath, mode_t mode) {
     assert(iRodsPath != NULL);
 
     iFuseRodsClientLog(LOG_DEBUG, "iFuseFsChmod: %s", iRodsPath);
-
+    
     // temporarily obtain a connection
     // must be marked unused and release lock after use
     status = iFuseConnGetAndUse(&iFuseConn, IFUSE_CONN_TYPE_FOR_SHORTOP);
@@ -1172,5 +1369,11 @@ int iFuseFsChmod(const char *iRodsPath, mode_t mode) {
 
     iFuseConnUnlock(iFuseConn);
     iFuseConnUnuse(iFuseConn);
+    
+    // clear stat cache
+    if(g_cacheMetadata) {
+        iFuseMetadataCacheRemoveStat(iRodsPath);
+    }
+    
     return 0;
 }

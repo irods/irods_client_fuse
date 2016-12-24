@@ -3,7 +3,7 @@
 /*** This code is rewritten by Illyoung Choi (iychoi@email.arizona.edu)    ***
  *** funded by iPlantCollaborative (www.iplantcollaborative.org).          ***/
 #ifndef IFUSE_LIB_FD_HPP
-#define	IFUSE_LIB_FD_HPP
+#define IFUSE_LIB_FD_HPP
 
 #include <pthread.h>
 #include "iFuse.Lib.Conn.hpp"
@@ -25,6 +25,8 @@ typedef struct IFuseDir {
     collHandle_t *handle;
     iFuseConn_t *conn;
     char *iRodsPath;
+    char *cachedEntries;
+    unsigned int cachedEntryBufferLen;
     pthread_mutexattr_t lockAttr;
     pthread_mutex_t lock;
 } iFuseDir_t;
@@ -36,6 +38,7 @@ void iFuseDirDestroy();
 int iFuseFdOpen(iFuseFd_t **iFuseFd, iFuseConn_t *iFuseConn, const char* iRodsPath, int openFlag);
 int iFuseFdReopen(iFuseFd_t *iFuseFd);
 int iFuseDirOpen(iFuseDir_t **iFuseDir, iFuseConn_t *iFuseConn, const char* iRodsPath);
+int iFuseDirOpenWithCache(iFuseDir_t **iFuseDir, const char* iRodsPath, const char* cachedEntries, unsigned int entryBufferLen);
 int iFuseFdClose(iFuseFd_t *iFuseFd);
 int iFuseDirClose(iFuseDir_t *iFuseDir);
 void iFuseFdLock(iFuseFd_t *iFuseFd);
@@ -44,4 +47,3 @@ void iFuseFdUnlock(iFuseFd_t *iFuseFd);
 void iFuseDirUnlock(iFuseDir_t *iFuseDir);
 
 #endif	/* IFUSE_LIB_FD_HPP */
-
