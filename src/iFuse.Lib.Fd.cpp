@@ -25,8 +25,8 @@ static pthread_mutexattr_t g_AssignedDirLockAttr;
 static pthread_mutex_t g_AssignedDirLock;
 static std::list<iFuseDir_t*> g_AssignedDir;
 
-static unsigned long g_fdIDGen;
-static unsigned long g_ddIDGen;
+static unsigned long g_FdIDGen;
+static unsigned long g_DdIDGen;
 
 /*
  * Lock order : 
@@ -35,11 +35,11 @@ static unsigned long g_ddIDGen;
  */
 
 static unsigned long _genNextFdID() {
-    return g_fdIDGen++;
+    return g_FdIDGen++;
 }
 
 static unsigned long _genNextDdID() {
-    return g_ddIDGen++;
+    return g_DdIDGen++;
 }
 
 static int _closeFd(iFuseFd_t *iFuseFd) {
@@ -219,7 +219,7 @@ void iFuseFdInit() {
     pthread_mutexattr_settype(&g_AssignedFdLockAttr, PTHREAD_MUTEX_RECURSIVE);
     pthread_mutex_init(&g_AssignedFdLock, &g_AssignedFdLockAttr);
     
-    g_fdIDGen = 0;
+    g_FdIDGen = 0;
 }
 
 /*
@@ -230,14 +230,14 @@ void iFuseDirInit() {
     pthread_mutexattr_settype(&g_AssignedDirLockAttr, PTHREAD_MUTEX_RECURSIVE);
     pthread_mutex_init(&g_AssignedDirLock, &g_AssignedDirLockAttr);
     
-    g_ddIDGen = 0;
+    g_DdIDGen = 0;
 }
 
 /*
  * Destroy file descriptor manager
  */
 void iFuseFdDestroy() {
-    g_fdIDGen = 0;
+    g_FdIDGen = 0;
     
     _closeAllFd();
     
@@ -249,7 +249,7 @@ void iFuseFdDestroy() {
  * Destroy directory descriptor manager
  */
 void iFuseDirDestroy() {
-    g_ddIDGen = 0;
+    g_DdIDGen = 0;
     
     _closeAllDir();
     
