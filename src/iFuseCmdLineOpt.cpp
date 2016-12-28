@@ -83,7 +83,10 @@ void iFuseCmdOptsParse(int argc, char **argv) {
     g_Opt.program = strdup(argv[0]);
 
     for(i=0;i<argc;i++) {
-        if(strcmp("-onocache", argv[i]) == 0) {
+        if(strcmp("--version", argv[i]) == 0) {
+            g_Opt.version = true;
+            argv[i] = "-Z";
+        } else if(strcmp("-onocache", argv[i]) == 0) {
             g_Opt.bufferedFS = false;
             g_Opt.preload = false;
             g_Opt.cacheMetadata = false;
@@ -149,8 +152,20 @@ void iFuseCmdOptsParse(int argc, char **argv) {
     }
 
     optind = 1;
-    while((c = getopt(argc, argv, "dfo:Z")) != -1) {
+    while((c = getopt(argc, argv, "hvVdfo:Z")) != -1) {
         switch(c) {
+            case 'h':
+                {
+                    // help
+                    g_Opt.help = true;
+                }
+                break;
+            case 'v':
+            case 'V':
+                {
+                    g_Opt.version = true;
+                }
+                break;
             case 'd':
                 {
                     // fuse debug mode
@@ -193,9 +208,10 @@ void iFuseCmdOptsParse(int argc, char **argv) {
     }
 
     for(index=optind;index<argc;index++) {
-        assert(g_Opt.mountpoint == NULL);
-
-        g_Opt.mountpoint = strdup(argv[index]);
+        if(argv[index] != NULL && strlen(argv[index]) > 0) {
+            g_Opt.mountpoint = strdup(argv[index]);
+            break;
+        }
     }
 }
 

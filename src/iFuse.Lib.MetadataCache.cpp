@@ -26,8 +26,8 @@ static std::map<std::string, iFuseStatCache_t*> g_StatCacheMap;
 static std::map<std::string, iFuseDirCache_t*> g_DirCacheMap;
 
 static int g_metadataCacheTimeoutSec = IFUSE_METADATA_CACHE_TIMEOUT_SEC;
-static time_t g_lastStatCacheTimeoutCheck = 0;
-static time_t g_lastDirCacheTimeoutCheck = 0;
+static time_t g_LastStatCacheTimeoutCheck = 0;
+static time_t g_LastDirCacheTimeoutCheck = 0;
 
 static int _newStatCache(iFuseStatCache_t **iFuseStatCache) {
     iFuseStatCache_t *tmpIFuseStatCache = NULL;
@@ -489,7 +489,7 @@ static int _clearExpiredStatCache() {
     
     pthread_mutex_unlock(&g_StatCacheLock);
     
-    g_lastStatCacheTimeoutCheck = iFuseLibGetCurrentTime();
+    g_LastStatCacheTimeoutCheck = iFuseLibGetCurrentTime();
     return 0;
 }
 
@@ -606,13 +606,16 @@ void iFuseMetadataCacheDestroy() {
     pthread_mutexattr_destroy(&g_DirCacheLockAttr);
 }
 
+void iFuseMetadataCacheClear() {
+    _releaseAllCache();
+}
 
 int iFuseMetadataCacheClearExpiredStat(bool force) {
     
     iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCacheClearExpiredStat");
     
     if(!force) {
-        if(iFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), g_lastStatCacheTimeoutCheck) <= (g_metadataCacheTimeoutSec / 2)) {
+        if(iFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), g_LastStatCacheTimeoutCheck) <= (g_metadataCacheTimeoutSec / 2)) {
             return 0;
         }
     }
@@ -627,7 +630,7 @@ int iFuseMetadataCacheClearExpiredDir(bool force) {
     iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCacheClearExpiredDir");
     
     if(!force) {
-        if(iFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), g_lastDirCacheTimeoutCheck) <= (g_metadataCacheTimeoutSec / 2)) {
+        if(iFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), g_LastDirCacheTimeoutCheck) <= (g_metadataCacheTimeoutSec / 2)) {
             return 0;
         }
     }

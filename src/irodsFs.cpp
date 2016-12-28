@@ -11,10 +11,15 @@
 #include <pthread.h>
 #include "rodsClient.h"
 #include "parseCommandLine.h"
+#include "iFuse.Preload.hpp"
+#include "iFuse.BufferedFS.hpp"
+#include "iFuse.FS.hpp"
 #include "iFuse.Lib.hpp"
 #include "iFuse.Lib.Conn.hpp"
+#include "iFuse.Lib.Fd.hpp"
+#include "iFuse.Lib.Util.hpp"
+#include "iFuse.Lib.RodsClientAPI.hpp" 
 #include "iFuseOper.hpp"
-#include "iFuse.Lib.RodsClientAPI.hpp"
 #include "iFuseCmdLineOpt.hpp"
 
 static struct fuse_operations irodsOper;
@@ -24,8 +29,6 @@ static int checkMountPoint(char *mountPoint, bool nonempty);
 
 int main(int argc, char **argv) {
     int status;
-    rodsArguments_t myRodsArgs;
-    char *optStr;
     rodsEnv myRodsEnv;
     int fuse_argc;
     char **fuse_argv;
@@ -57,23 +60,7 @@ int main(int argc, char **argv) {
     irodsOper.flush = iFuseFlush;
     irodsOper.mknod = iFuseCreate;
     irodsOper.fsync = iFuseFsync;
-
-    optStr = "Zhdo:";
-
-    status = parseCmdLineOpt(argc, argv, optStr, 1, &myRodsArgs);
-    if (status < 0) {
-        printf("Use -h for help.\n");
-        return 1;
-    }
-
-    if (myRodsArgs.help == True) {
-        usage();
-        return 0;
-    }
-    if (myRodsArgs.version == True) {
-        printf("Version: %s", RODS_REL_VERSION);
-        return 0;
-    }
+    irodsOper.ioctl = iFuseIoctl;
 
     status = getRodsEnv(&myRodsEnv);
     if (status < 0) {
@@ -88,6 +75,15 @@ int main(int argc, char **argv) {
 
     iFuseGetOption(&myiFuseOpt);
     
+    if (myiFuseOpt.help) {
+        usage();
+        return 0;
+    }
+    if (myiFuseOpt.version) {
+        printf("iRODS RELEASE VERSION: %s\n", RODS_REL_VERSION);
+        return 0;
+    }
+    
     // check mount point
     status = checkMountPoint(myiFuseOpt.mountpoint, myiFuseOpt.nonempty);
     if(status != 0) {
@@ -99,10 +95,23 @@ int main(int argc, char **argv) {
     iFuseLibSetRodsEnv(&myRodsEnv);
     iFuseLibSetOption(&myiFuseOpt);
 
+    // Init libraries
+    iFuseLibInit();
+    iFuseFsInit();
+    iFuseBufferedFSInit();
+    iFusePreloadInit();
+
     // check iRODS iCAT host connectivity
     status = iFuseConnTest();
     if(status != 0) {
         fprintf(stderr, "iRods Fuse abort: cannot connect to iCAT\n");
+        
+        // Destroy libraries
+        iFusePreloadDestroy();
+        iFuseBufferedFSDestroy();
+        iFuseFsDestroy();
+        iFuseLibDestroy();
+        
         iFuseCmdOptsDestroy();
         return 1;
     }
@@ -112,6 +121,12 @@ int main(int argc, char **argv) {
     iFuseRodsClientLog(LOG_DEBUG, "main: iRods Fuse gets started.");
     status = fuse_main(fuse_argc, fuse_argv, &irodsOper, NULL);
     iFuseReleaseCmdLineForFuse(fuse_argc, fuse_argv);
+
+    // Destroy libraries
+    iFusePreloadDestroy();
+    iFuseBufferedFSDestroy();
+    iFuseFsDestroy();
+    iFuseLibDestroy();
 
     iFuseCmdOptsDestroy();
 
@@ -124,13 +139,14 @@ int main(int argc, char **argv) {
 
 static void usage() {
     char *msgs[] = {
-        "Usage: irodsFs [-hd] [-o opt,[opt...]]",
+        "Usage: irodsFs [-hdfvV] [-o opt,[opt...]]",
         "Single user iRODS/Fuse server",
         "Options are:",
         " -h        this help",
         " -d        FUSE debug mode",
+        " -f        FUSE foreground mode",
         " -o        opt,[opt...]  FUSE mount options",
-        " --version print version information",
+        " -v, -V, --version print version information",
         ""
     };
     int i;

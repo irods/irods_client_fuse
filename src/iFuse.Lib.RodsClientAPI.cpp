@@ -27,7 +27,7 @@ static std::list<iFuseRodsClientOperation_t*> g_Operations;
 static pthread_t g_TimeoutChecker;
 static bool g_TimeoutCheckerRunning;
 
-static int g_rodsapiTimeoutSec = IFUSE_RODSCLIENTAPI_TIMEOUT_SEC;
+static int g_RodsapiTimeoutSec = IFUSE_RODSCLIENTAPI_TIMEOUT_SEC;
 
 static void* _timeoutChecker(void* param) {
     std::list<iFuseRodsClientOperation_t*>::iterator it_oper;
@@ -48,7 +48,7 @@ static void* _timeoutChecker(void* param) {
         for(it_oper=g_Operations.begin();it_oper!=g_Operations.end();it_oper++) {
             oper = *it_oper;
             
-            if(iFuseLibDiffTimeSec(currentTime, oper->start) >= g_rodsapiTimeoutSec) {
+            if(iFuseLibDiffTimeSec(currentTime, oper->start) >= g_RodsapiTimeoutSec) {
                 removeList.push_back(oper);
             }
         }
@@ -124,7 +124,7 @@ static void _endOperationTimeout(iFuseRodsClientOperation_t *oper) {
 void iFuseRodsClientInit() {
    
     if(iFuseLibGetOption()->rodsapiTimeoutSec > 0) {
-        g_rodsapiTimeoutSec = iFuseLibGetOption()->rodsapiTimeoutSec;
+        g_RodsapiTimeoutSec = iFuseLibGetOption()->rodsapiTimeoutSec;
     }
    
     pthread_mutexattr_init(&g_RodsClientAPILockAttr);

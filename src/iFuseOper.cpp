@@ -19,22 +19,21 @@
 #include "sockComm.h"
 
 void *iFuseInit(struct fuse_conn_info *conn) {
-    UNUSED(conn);
+    if (conn->capable & FUSE_CAP_BIG_WRITES) {
+        conn->want |= FUSE_CAP_BIG_WRITES;
+    }
     
-    iFuseLibInit();
-    iFuseFsInit();
-    iFuseBufferedFSInit();
-    iFusePreloadInit();
+#ifdef FUSE_CAP_IOCTL_DIR    
+    if (conn->capable & FUSE_CAP_IOCTL_DIR) {
+        conn->want |= FUSE_CAP_IOCTL_DIR;
+    }
+#endif
+
     return NULL;
 }
 
 void iFuseDestroy(void *data) {
     UNUSED(data);
-    
-    iFusePreloadDestroy();
-    iFuseBufferedFSDestroy();
-    iFuseFsDestroy();
-    iFuseLibDestroy();
 }
 
 int iFuseGetAttr(const char *path, struct stat *stbuf) {
@@ -753,6 +752,29 @@ int iFuseChown(const char *path, uid_t uid, gid_t gid) {
 int iFuseUtimens(const char *path, const struct timespec ts[2]) {
     UNUSED(path);
     UNUSED(ts);
+    
+    return 0;
+}
+
+int iFuseIoctl(const char *path, int cmd, void *arg, struct fuse_file_info *fi, unsigned int flags, void *data) {
+    int status = 0;
+    char iRodsPath[MAX_NAME_LEN];
+    
+    bzero(iRodsPath, MAX_NAME_LEN);
+    status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
+    if (status < 0) {
+        iFuseRodsClientLogError(LOG_ERROR, status,
+                "iFuseIoctl: iFuseRodsClientMakeRodsPath of %s error", path);
+        // use ENOTDIR for this type of error
+        return -ENOTDIR;
+    }
+    
+    status = iFuseFsIoctl(iRodsPath, cmd, arg, fi, flags, data);
+    if (status < 0) {
+        iFuseRodsClientLogError(LOG_ERROR, status, 
+                "iFuseIoctl: cannot peform ioctl of a file for %s error", iRodsPath);
+        return status;
+    }
     
     return 0;
 }
