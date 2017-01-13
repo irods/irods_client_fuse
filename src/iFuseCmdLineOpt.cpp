@@ -15,12 +15,24 @@
 #include "iFuse.Lib.Conn.hpp"
 #include "iFuse.Lib.MetadataCache.hpp"
 #include "iFuse.Lib.RodsClientAPI.hpp"
+#include "iFuse.Lib.Util.hpp"
 #include "iFuse.Preload.hpp"
 #include "miscUtil.h"
 
 static iFuseOpt_t g_Opt;
 
+static bool _atob(const char *str) {
+    if(str == NULL) {
+        return false;
+    } else if(iFuseUtilStricmp(str, "true") == 0) {
+        return true;
+    }
+    return false;
+}
+
 void iFuseCmdOptsInit() {
+    char *value;
+    
     bzero(&g_Opt, sizeof(iFuseOpt_t));
 
     g_Opt.bufferedFS = true;
@@ -35,6 +47,69 @@ void iFuseCmdOptsInit() {
     g_Opt.rodsapiTimeoutSec = IFUSE_RODSCLIENTAPI_TIMEOUT_SEC;
     g_Opt.preloadNumBlocks = IFUSE_PRELOAD_PBLOCK_NUM;
     g_Opt.metadataCacheTimeoutSec = IFUSE_METADATA_CACHE_TIMEOUT_SEC;
+    
+    // check environmental variables
+    value = getenv("IRODSFS_NOCACHE"); // true/false
+    if(_atob(value)) {
+        g_Opt.bufferedFS = false;
+        g_Opt.preload = false;
+        g_Opt.cacheMetadata = false;
+    }
+    
+    value = getenv("IRODSFS_NOPRELOAD"); // true/false
+    if(_atob(value)) {
+        g_Opt.preload = false;
+    }
+    
+    value = getenv("IRODSFS_NOCACHEMETADATA"); // true/false
+    if(_atob(value)) {
+        g_Opt.cacheMetadata = false;
+    }
+    
+    value = getenv("IRODSFS_MAXCONN"); // number
+    if(value != NULL) {
+        g_Opt.maxConn = atoi(value);
+    }
+    
+    value = getenv("IRODSFS_BLOCKSIZE"); // number
+    if(value != NULL) {
+        g_Opt.blocksize = atoi(value);
+    }
+    
+    value = getenv("IRODSFS_CONNREUSE"); // true/false
+    if(_atob(value)) {
+        g_Opt.connReuse = true;
+    }
+    
+    value = getenv("IRODSFS_CONNTIMEOUT"); // number
+    if(value != NULL) {
+        g_Opt.connTimeoutSec = atoi(value);
+    }
+    
+    value = getenv("IRODSFS_CONNKEEPALIVE"); // number
+    if(value != NULL) {
+        g_Opt.connKeepAliveSec = atoi(value);
+    }
+    
+    value = getenv("IRODSFS_CONNCHECKINTERVAL"); // number
+    if(value != NULL) {
+        g_Opt.connCheckIntervalSec = atoi(value);
+    }
+    
+    value = getenv("IRODSFS_APITIMEOUT"); // number
+    if(value != NULL) {
+        g_Opt.rodsapiTimeoutSec = atoi(value);
+    }
+    
+    value = getenv("IRODSFS_PRELOADBLOCKS"); // number
+    if(value != NULL) {
+        g_Opt.preloadNumBlocks = atoi(value);
+    }
+    
+    value = getenv("IRODSFS_METADATACACHETIMEOUT"); // number
+    if(value != NULL) {
+        g_Opt.metadataCacheTimeoutSec = atoi(value);
+    }
 }
 
 void iFuseCmdOptsDestroy() {

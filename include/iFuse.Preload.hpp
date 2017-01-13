@@ -10,7 +10,8 @@
 #include "iFuse.BufferedFS.hpp"
 #include "iFuse.Lib.Fd.hpp"
 
-#define IFUSE_PRELOAD_PBLOCK_NUM         3
+#define IFUSE_PRELOAD_PBLOCK_NUM             3
+#define IFUSE_PRELOAD_MAX_PBLOCK_NUM         10
 
 #define IFUSE_PRELOAD_PBLOCK_STATUS_INIT                 0
 #define IFUSE_PRELOAD_PBLOCK_STATUS_RUNNING              1
@@ -24,16 +25,16 @@ typedef struct IFusePreloadPBlock {
     int status;
     bool threadJoined;
     pthread_t thread;
-    pthread_mutexattr_t lockAttr;
-    pthread_mutex_t lock;
+    pthread_rwlockattr_t lockAttr;
+    pthread_rwlock_t lock;
 } iFusePreloadPBlock_t;
 
 typedef struct IFusePreload {
     unsigned long fdId;
     char *iRodsPath;
     std::list<iFusePreloadPBlock_t*> *pblocks;
-    pthread_mutexattr_t lockAttr;
-    pthread_mutex_t lock;
+    pthread_rwlockattr_t lockAttr;
+    pthread_rwlock_t lock;
 } iFusePreload_t;
 
 typedef struct IFusePreloadThreadParam {

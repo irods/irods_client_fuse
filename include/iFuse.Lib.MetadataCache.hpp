@@ -1,7 +1,5 @@
-/*** Copyright (c), The Regents of the University of California            ***
- *** For more information please refer to files in the COPYRIGHT directory ***/
-/*** This code is rewritten by Illyoung Choi (iychoi@email.arizona.edu)    ***
- *** funded by iPlantCollaborative (www.iplantcollaborative.org).          ***/
+/*** This code is written by Illyoung Choi (iychoi@email.arizona.edu)    ***
+ *** funded by iPlantCollaborative (www.iplantcollaborative.org).        ***/
 #ifndef IFUSE_LIB_METADATACACHE_HPP
 #define IFUSE_LIB_METADATACACHE_HPP
 
@@ -9,7 +7,7 @@
 #include <list>
 #include <time.h>
 
-#define IFUSE_METADATA_CACHE_TIMEOUT_SEC           (30)
+#define IFUSE_METADATA_CACHE_TIMEOUT_SEC           (3*60)
 
 typedef struct IFuseStatCache {
     char *iRodsPath;
@@ -25,6 +23,7 @@ typedef struct IFuseDirCache {
 
 void iFuseMetadataCacheInit();
 void iFuseMetadataCacheDestroy();
+void iFuseMetadataCacheClear();
 int iFuseMetadataCacheClearExpiredStat(bool force);
 int iFuseMetadataCacheClearExpiredDir(bool force);
 int iFuseMetadataCachePutStat(const char *iRodsPath, const struct stat *stbuf);
@@ -34,6 +33,7 @@ int iFuseMetadataCacheAddDirEntryIfFresh(const char *iRodsPath, const char *iRod
 int iFuseMetadataCacheAddDirEntryIfFresh2(const char *iRodsPath);
 int iFuseMetadataCacheGetStat(const char *iRodsPath, struct stat *stbuf);
 int iFuseMetadataCacheGetDirEntry(const char *iRodsPath, char **entries, unsigned int *bufferLen);
+int iFuseMetadataCacheCheckExistanceOfDirEntry(const char *iRodsPath);
 int iFuseMetadataCacheRemoveStat(const char *iRodsPath);
 int iFuseMetadataCacheRemoveDir(const char *iRodsPath);
 int iFuseMetadataCacheRemoveDirEntry(const char *iRodsPath, const char *iRodsFilename);

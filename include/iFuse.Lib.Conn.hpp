@@ -23,12 +23,20 @@ typedef struct IFuseConn {
     unsigned long connId;
     int type;
     rcComm_t *conn;
-    time_t actTime;
-    time_t lastKeepAliveTime;
+    time_t lastActTime;
+    time_t lastUseTime;
     int inuseCnt;
-    pthread_mutexattr_t lockAttr;
-    pthread_mutex_t lock;
+    pthread_rwlockattr_t lockAttr;
+    pthread_rwlock_t lock;
 } iFuseConn_t;
+
+typedef struct IFuseFsConnReport {
+    int inuseShortOpConn;
+    int inuseConn;
+    int inuseOnetimeuseConn;
+    int freeShortopConn;
+    int freeConn;
+} iFuseFsConnReport_t;
 
 /*
  * Usage pattern
@@ -44,8 +52,10 @@ typedef struct IFuseConn {
 int iFuseConnTest();
 void iFuseConnInit();
 void iFuseConnDestroy();
+void iFuseConnReport(iFuseFsConnReport_t *report);
 int iFuseConnGetAndUse(iFuseConn_t **iFuseConn, int connType);
 int iFuseConnUnuse(iFuseConn_t *iFuseConn);
+void iFuseConnUpdateLastActTime(iFuseConn_t *iFuseConn, bool lock);
 int iFuseConnReconnect(iFuseConn_t *iFuseConn);
 void iFuseConnLock(iFuseConn_t *iFuseConn);
 void iFuseConnUnlock(iFuseConn_t *iFuseConn);

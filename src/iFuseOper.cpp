@@ -29,11 +29,29 @@ void *iFuseInit(struct fuse_conn_info *conn) {
     }
 #endif
 
+    iFuseLibInitTimerThread();
+    
+    int status = 0;
+    char iRodsPath[MAX_NAME_LEN];
+    bzero(iRodsPath, MAX_NAME_LEN);
+    
+    iFuseLibLog(LOG_DEBUG, "iFuseInit: pre-fetch mount root directory.");
+    status = iFuseRodsClientMakeRodsPath("/", iRodsPath);
+    if (status < 0) {
+        iFuseLibLogError(LOG_ERROR, status,
+                "iFuseInit: iFuseRodsClientMakeRodsPath of %s error", iRodsPath);
+        // quick return
+        return NULL;
+    }
+    iFuseFsCacheDir(iRodsPath);
+    
     return NULL;
 }
 
 void iFuseDestroy(void *data) {
     UNUSED(data);
+    
+    iFuseLibTerminateTimerThread();
 }
 
 int iFuseGetAttr(const char *path, struct stat *stbuf) {
@@ -43,7 +61,7 @@ int iFuseGetAttr(const char *path, struct stat *stbuf) {
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseGetAttr: iFuseRodsClientMakeRodsPath of %s error", iRodsPath);
         // use ENOTDIR for this type of error
         return -ENOTDIR;
@@ -52,13 +70,13 @@ int iFuseGetAttr(const char *path, struct stat *stbuf) {
     if(iFuseLibGetOption()->bufferedFS) {
         status = iFuseBufferedFsGetAttr(iRodsPath, stbuf);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, 
+            iFuseLibLogError(LOG_ERROR, status, 
                     "iFuseGetAttr: iFuseBufferedFsGetAttr of %s error", iRodsPath);
         }
     } else {
         status = iFuseFsGetAttr(iRodsPath, stbuf);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, 
+            iFuseLibLogError(LOG_ERROR, status, 
                     "iFuseGetAttr: iFuseFsGetAttr of %s error", iRodsPath);
         }
     }
@@ -75,7 +93,7 @@ int iFuseOpen(const char *path, struct fuse_file_info *fi) {
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseOpen: iFuseRodsClientMakeRodsPath of %s error", iRodsPath);
         /* use ENOTDIR for this type of error */
         return -ENOTDIR;
@@ -85,14 +103,14 @@ int iFuseOpen(const char *path, struct fuse_file_info *fi) {
         if(iFuseLibGetOption()->preload) {
             status = iFusePreloadOpen(iRodsPath, &iFuseFd, flag);
             if (status < 0) {
-                iFuseRodsClientLogError(LOG_ERROR, status, 
+                iFuseLibLogError(LOG_ERROR, status, 
                         "iFuseOpen: cannot open file descriptor for %s error", iRodsPath);
                 return -ENOENT;
             }
         } else {
             status = iFuseBufferedFsOpen(iRodsPath, &iFuseFd, flag);
             if (status < 0) {
-                iFuseRodsClientLogError(LOG_ERROR, status, 
+                iFuseLibLogError(LOG_ERROR, status, 
                         "iFuseOpen: cannot open file descriptor for %s error", iRodsPath);
                 return -ENOENT;
             }
@@ -100,7 +118,7 @@ int iFuseOpen(const char *path, struct fuse_file_info *fi) {
     } else {
         status = iFuseFsOpen(iRodsPath, &iFuseFd, flag);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, 
+            iFuseLibLogError(LOG_ERROR, status, 
                     "iFuseOpen: cannot open file descriptor for %s error", iRodsPath);
             return -ENOENT;
         }
@@ -124,7 +142,7 @@ int iFuseClose(const char *path, struct fuse_file_info *fi) {
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseClose: iFuseRodsClientMakeRodsPath of %s error", iRodsPath);
         /* use ENOTDIR for this type of error */
         return -ENOTDIR;
@@ -134,14 +152,14 @@ int iFuseClose(const char *path, struct fuse_file_info *fi) {
         if(iFuseLibGetOption()->preload) {
             status = iFusePreloadClose(iFuseFd);
             if (status < 0) {
-                iFuseRodsClientLogError(LOG_ERROR, status, 
+                iFuseLibLogError(LOG_ERROR, status, 
                         "iFuseClose: cannot close file descriptor for %s error", iRodsPath);
                 return -ENOENT;
             }
         } else {
             status = iFuseBufferedFsClose(iFuseFd);
             if (status < 0) {
-                iFuseRodsClientLogError(LOG_ERROR, status, 
+                iFuseLibLogError(LOG_ERROR, status, 
                         "iFuseClose: cannot close file descriptor for %s error", iRodsPath);
                 return -ENOENT;
             }
@@ -149,7 +167,7 @@ int iFuseClose(const char *path, struct fuse_file_info *fi) {
     } else {
         status = iFuseFsClose(iFuseFd);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, 
+            iFuseLibLogError(LOG_ERROR, status, 
                     "iFuseClose: cannot close file descriptor for %s error", iRodsPath);
             return -ENOENT;
         }
@@ -172,7 +190,7 @@ int iFuseFlush(const char *path, struct fuse_file_info *fi) {
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseFlush: iFuseRodsClientMakeRodsPath of %s error", iRodsPath);
         /* use ENOTDIR for this type of error */
         return -ENOTDIR;
@@ -181,14 +199,14 @@ int iFuseFlush(const char *path, struct fuse_file_info *fi) {
     if(iFuseLibGetOption()->bufferedFS) {
         status = iFuseBufferedFsFlush(iFuseFd);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, 
+            iFuseLibLogError(LOG_ERROR, status, 
                     "iFuseFlush: cannot flush file content for %s error", iRodsPath);
             return -ENOENT;
         }
     } else {
         status = iFuseFsFlush(iFuseFd);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, 
+            iFuseLibLogError(LOG_ERROR, status, 
                     "iFuseFlush: cannot flush file content for %s error", iRodsPath);
             return -ENOENT;
         }
@@ -212,7 +230,7 @@ int iFuseFsync(const char *path, int isdatasync, struct fuse_file_info *fi) {
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseFsync: iFuseRodsClientMakeRodsPath of %s error", iRodsPath);
         /* use ENOTDIR for this type of error */
         return -ENOTDIR;
@@ -221,14 +239,14 @@ int iFuseFsync(const char *path, int isdatasync, struct fuse_file_info *fi) {
     if(iFuseLibGetOption()->bufferedFS) {
         status = iFuseBufferedFsFlush(iFuseFd);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, 
+            iFuseLibLogError(LOG_ERROR, status, 
                     "iFuseFsync: cannot flush file content for %s error", iRodsPath);
             return -ENOENT;
         }
     } else {
         status = iFuseFsFlush(iFuseFd);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, 
+            iFuseLibLogError(LOG_ERROR, status, 
                     "iFuseFsync: cannot flush file content for %s error", iRodsPath);
             return -ENOENT;
         }
@@ -254,7 +272,7 @@ int iFuseRead(const char *path, char *buf, size_t size, off_t offset, struct fus
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseRead: iFuseRodsClientMakeRodsPath of %s error", iRodsPath);
         /* use ENOTDIR for this type of error */
         return -ENOTDIR;
@@ -264,14 +282,14 @@ int iFuseRead(const char *path, char *buf, size_t size, off_t offset, struct fus
         if(iFuseLibGetOption()->preload) {
             status = iFusePreloadRead(iFuseFd, buf, offset, size);
             if (status < 0) {
-                iFuseRodsClientLogError(LOG_ERROR, status, 
+                iFuseLibLogError(LOG_ERROR, status, 
                         "iFuseRead: cannot read file content for %s error", iRodsPath);
                 return -ENOENT;
             }
         } else {
             status = iFuseBufferedFsRead(iFuseFd, buf, offset, size);
             if (status < 0) {
-                iFuseRodsClientLogError(LOG_ERROR, status, 
+                iFuseLibLogError(LOG_ERROR, status, 
                         "iFuseRead: cannot read file content for %s error", iRodsPath);
                 return -ENOENT;
             }
@@ -279,7 +297,7 @@ int iFuseRead(const char *path, char *buf, size_t size, off_t offset, struct fus
     } else {
         status = iFuseFsRead(iFuseFd, buf, offset, size);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, 
+            iFuseLibLogError(LOG_ERROR, status, 
                     "iFuseRead: cannot read file content for %s error", iRodsPath);
             return -ENOENT;
         }
@@ -300,7 +318,7 @@ int iFuseWrite(const char *path, const char *buf, size_t size, off_t offset, str
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseWrite: iFuseRodsClientMakeRodsPath of %s error", iRodsPath);
         /* use ENOTDIR for this type of error */
         return -ENOTDIR;
@@ -309,14 +327,14 @@ int iFuseWrite(const char *path, const char *buf, size_t size, off_t offset, str
     if(iFuseLibGetOption()->bufferedFS) {
         status = iFuseBufferedFsWrite(iFuseFd, buf, offset, size);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, 
+            iFuseLibLogError(LOG_ERROR, status, 
                     "iFuseWrite: cannot write file content for %s error", iRodsPath);
             return -ENOENT;
         }
     } else {
         status = iFuseFsWrite(iFuseFd, buf, offset, size);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, 
+            iFuseLibLogError(LOG_ERROR, status, 
                     "iFuseWrite: cannot write file content for %s error", iRodsPath);
             return -ENOENT;
         }
@@ -332,7 +350,7 @@ int iFuseCreate(const char *path, mode_t mode, dev_t) {
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseCreate: iFuseRodsClientMakeRodsPath of %s error", iRodsPath);
         // use ENOTDIR for this type of error
         return -ENOTDIR;
@@ -340,7 +358,7 @@ int iFuseCreate(const char *path, mode_t mode, dev_t) {
     
     status = iFuseFsCreate(iRodsPath, mode);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseCreate: cannot create a file for %s error", iRodsPath);
         return -ENOENT;
     }
@@ -355,7 +373,7 @@ int iFuseUnlink(const char *path) {
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseUnlink: iFuseRodsClientMakeRodsPath of %s error", iRodsPath);
         // use ENOTDIR for this type of error
         return -ENOTDIR;
@@ -363,7 +381,7 @@ int iFuseUnlink(const char *path) {
     
     status = iFuseFsUnlink(iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseUnlink: cannot delete a file for %s error", iRodsPath);
         return status;
     }
@@ -411,7 +429,7 @@ int iFuseOpenDir(const char *path, struct fuse_file_info *fi) {
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseOpenDir: iFuseRodsClientMakeRodsPath of %s error", path);
         // use ENOTDIR for this type of error
         return -ENOTDIR;
@@ -419,7 +437,7 @@ int iFuseOpenDir(const char *path, struct fuse_file_info *fi) {
     
     status = iFuseFsOpenDir(iRodsPath, &iFuseDir);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseOpenDir: cannot open a directory for %s error", iRodsPath);
         return status;
     }
@@ -440,7 +458,7 @@ int iFuseCloseDir(const char *path, struct fuse_file_info *fi) {
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseCloseDir: iFuseRodsClientMakeRodsPath of %s error", iRodsPath);
         /* use ENOTDIR for this type of error */
         return -ENOTDIR;
@@ -448,7 +466,7 @@ int iFuseCloseDir(const char *path, struct fuse_file_info *fi) {
     
     status = iFuseFsCloseDir(iFuseDir);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseCloseDir: cannot close a directory for %s error", iRodsPath);
         return -ENOENT;
     }
@@ -469,7 +487,7 @@ int iFuseReadDir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offs
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseReadDir: iFuseRodsClientMakeRodsPath of %s error", iRodsPath);
         /* use ENOTDIR for this type of error */
         return -ENOTDIR;
@@ -480,7 +498,7 @@ int iFuseReadDir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offs
     
     status = iFuseFsReadDir(iFuseDir, filler, buf, offset);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseReadDir: cannot read directory for %s error", iRodsPath);
         return status;
     }
@@ -496,7 +514,7 @@ int iFuseMakeDir(const char *path, mode_t mode) {
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseMakeDir: iFuseRodsClientMakeRodsPath of %s error", iRodsPath);
         // use ENOTDIR for this type of error
         return -ENOTDIR;
@@ -510,7 +528,7 @@ int iFuseMakeDir(const char *path, mode_t mode) {
     
     status = iFuseFsMakeDir(iRodsPath, mode);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseMakeDir: cannot create a directory for %s error", iRodsPath);
         return -ENOENT;
     }
@@ -525,7 +543,7 @@ int iFuseRemoveDir(const char *path) {
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseRemoveDir: iFuseRodsClientMakeRodsPath of %s error", iRodsPath);
         // use ENOTDIR for this type of error
         return -ENOTDIR;
@@ -533,7 +551,7 @@ int iFuseRemoveDir(const char *path) {
     
     status = iFuseFsRemoveDir(iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseRemoveDir: cannot delete a directory for %s error", iRodsPath);
         return status;
     }
@@ -550,7 +568,7 @@ int iFuseRename(const char *from, const char *to) {
     bzero(iRodsFromPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(from, iRodsFromPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseRename: iFuseRodsClientMakeRodsPath of %s error", iRodsFromPath);
         // use ENOTDIR for this type of error
         return -ENOTDIR;
@@ -559,7 +577,7 @@ int iFuseRename(const char *from, const char *to) {
     bzero(iRodsToPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(to, iRodsToPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseRename: iFuseRodsClientMakeRodsPath of %s error", iRodsToPath);
         // use ENOTDIR for this type of error
         return -ENOTDIR;
@@ -570,7 +588,7 @@ int iFuseRename(const char *from, const char *to) {
     if (status >= 0) {
         status = iFuseFsUnlink(iRodsToPath);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, 
+            iFuseLibLogError(LOG_ERROR, status, 
                     "iFuseUnlink: cannot delete a file for %s error", iRodsToPath);
             return status;
         }
@@ -578,7 +596,7 @@ int iFuseRename(const char *from, const char *to) {
     
     status = iFuseFsRename(iRodsFromPath, iRodsToPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseFsRename: cannot rename a file or a directory for %s to %s error", iRodsFromPath, iRodsToPath);
         return status;
     }
@@ -593,7 +611,7 @@ int iFuseTruncate(const char *path, off_t size) {
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseTruncate: iFuseRodsClientMakeRodsPath of %s error", path);
         // use ENOTDIR for this type of error
         return -ENOTDIR;
@@ -601,7 +619,7 @@ int iFuseTruncate(const char *path, off_t size) {
     
     status = iFuseFsTruncate(iRodsPath, size);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseTruncate: cannot truncate a file for %s error", iRodsPath);
         return status;
     }
@@ -619,7 +637,7 @@ int iFuseSymlink(const char *to, const char *from) {
     bzero(iRodsFromPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(from, iRodsFromPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseSymlink: iFuseRodsClientMakeRodsPath of %s error", iRodsFromPath);
         // use ENOTDIR for this type of error
         return -ENOTDIR;
@@ -628,7 +646,7 @@ int iFuseSymlink(const char *to, const char *from) {
     bzero(iRodsToPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(to, iRodsToPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseSymlink: iFuseRodsClientMakeRodsPath of %s error", iRodsToPath);
         // use ENOTDIR for this type of error
         return -ENOTDIR;
@@ -639,14 +657,14 @@ int iFuseSymlink(const char *to, const char *from) {
     if (status >= 0) {
         status = iFuseFsTruncate(iRodsFromPath, 0);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, 
+            iFuseLibLogError(LOG_ERROR, status, 
                     "iFuseSymlink: cannot truncate a file for %s error", iRodsFromPath);
             return status;
         }
     } else if(status == -ENOENT) {
         status = iFuseFsCreate(iRodsFromPath, S_IFLNK);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, 
+            iFuseLibLogError(LOG_ERROR, status, 
                     "iFuseSymlink: cannot create a file for %s error", iRodsFromPath);
             return -ENOENT;
         }
@@ -654,14 +672,14 @@ int iFuseSymlink(const char *to, const char *from) {
     
     status = iFuseFsOpen(iRodsFromPath, &iFuseFd, O_WRONLY);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseSymlink: cannot open file descriptor for %s error", iRodsFromPath);
         return -ENOENT;
     }
     
     status = iFuseFsWrite(iFuseFd, iRodsToPath, 0, strlen(iRodsToPath));
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseSymlink: cannot write file content for %s error", iRodsToPath);
         iFuseFsClose(iFuseFd);
         return -ENOENT;
@@ -669,7 +687,7 @@ int iFuseSymlink(const char *to, const char *from) {
 
     status = iFuseFsClose(iFuseFd);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseSymlink: cannot close file descriptor for %s error", iRodsFromPath);
         return -ENOENT;
     }
@@ -685,7 +703,7 @@ int iFuseReadLink(const char *path, char *buf, size_t size) {
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseReadLink: iFuseRodsClientMakeRodsPath of %s error", iRodsPath);
         // use ENOTDIR for this type of error
         return -ENOTDIR;
@@ -693,14 +711,14 @@ int iFuseReadLink(const char *path, char *buf, size_t size) {
     
     status = iFuseFsOpen(iRodsPath, &iFuseFd, O_RDONLY);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseReadLink: cannot open file descriptor for %s error", iRodsPath);
         return -ENOENT;
     }
     
     status = iFuseFsRead(iFuseFd, buf, 0, size - 1);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseReadLink: cannot read file content for %s error", iRodsPath);
         iFuseFsClose(iFuseFd);
         return -ENOENT;
@@ -710,7 +728,7 @@ int iFuseReadLink(const char *path, char *buf, size_t size) {
 
     status = iFuseFsClose(iFuseFd);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseReadLink: cannot close file descriptor for %s error", iRodsPath);
         return -ENOENT;
     }
@@ -725,7 +743,7 @@ int iFuseChmod(const char *path, mode_t mode) {
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseChmod: iFuseRodsClientMakeRodsPath of %s error", path);
         // use ENOTDIR for this type of error
         return -ENOTDIR;
@@ -733,7 +751,7 @@ int iFuseChmod(const char *path, mode_t mode) {
     
     status = iFuseFsChmod(iRodsPath, mode);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseChmod: cannot change mode of a file for %s error", iRodsPath);
         return status;
     }
@@ -763,7 +781,7 @@ int iFuseIoctl(const char *path, int cmd, void *arg, struct fuse_file_info *fi, 
     bzero(iRodsPath, MAX_NAME_LEN);
     status = iFuseRodsClientMakeRodsPath(path, iRodsPath);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status,
+        iFuseLibLogError(LOG_ERROR, status,
                 "iFuseIoctl: iFuseRodsClientMakeRodsPath of %s error", path);
         // use ENOTDIR for this type of error
         return -ENOTDIR;
@@ -771,7 +789,7 @@ int iFuseIoctl(const char *path, int cmd, void *arg, struct fuse_file_info *fi, 
     
     status = iFuseFsIoctl(iRodsPath, cmd, arg, fi, flags, data);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, 
+        iFuseLibLogError(LOG_ERROR, status, 
                 "iFuseIoctl: cannot peform ioctl of a file for %s error", iRodsPath);
         return status;
     }

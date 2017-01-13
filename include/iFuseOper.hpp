@@ -39,6 +39,7 @@ extern "C" {
     int iFuseChmod(const char *path, mode_t mode);
     int iFuseChown(const char *path, uid_t uid, gid_t gid);
     int iFuseUtimens(const char *path, const struct timespec ts[]);
+    int iFuseIoctl(const char *path, int cmd, void *arg, struct fuse_file_info *fi, unsigned int flags, void *data);
 #ifdef  __cplusplus
 }
 #endif

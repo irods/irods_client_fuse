@@ -1,7 +1,5 @@
-/*** Copyright (c), The Regents of the University of California            ***
- *** For more information please refer to files in the COPYRIGHT directory ***/
-/*** This code is rewritten by Illyoung Choi (iychoi@email.arizona.edu)    ***
- *** funded by iPlantCollaborative (www.iplantcollaborative.org).          ***/
+/*** This code is written by Illyoung Choi (iychoi@email.arizona.edu)    ***
+ *** funded by iPlantCollaborative (www.iplantcollaborative.org).        ***/
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -17,10 +15,10 @@
 #include "iFuse.Lib.MetadataCache.hpp"
 #include "iFuse.Lib.Util.hpp"
 
-static pthread_mutexattr_t g_StatCacheLockAttr;
-static pthread_mutex_t g_StatCacheLock;
-static pthread_mutexattr_t g_DirCacheLockAttr;
-static pthread_mutex_t g_DirCacheLock;
+static pthread_rwlockattr_t g_StatCacheLockAttr;
+static pthread_rwlock_t g_StatCacheLock;
+static pthread_rwlockattr_t g_DirCacheLockAttr;
+static pthread_rwlock_t g_DirCacheLock;
 
 static std::map<std::string, iFuseStatCache_t*> g_StatCacheMap;
 static std::map<std::string, iFuseDirCache_t*> g_DirCacheMap;
@@ -125,29 +123,25 @@ static int _cacheStat(const char *iRodsPath, const struct stat *stbuf) {
     
     std::string pathkey(iRodsPath);
 
-    pthread_mutex_lock(&g_StatCacheLock);
-    
     status = _newStatCache(&iFuseStatCache);
     if(status != 0) {
-        pthread_mutex_unlock(&g_StatCacheLock);
         return status;
     }
-    
+
     iFuseStatCache->iRodsPath = strdup(iRodsPath);
     if(iFuseStatCache->iRodsPath == NULL) {
         _freeStatCache(iFuseStatCache);
-        pthread_mutex_unlock(&g_StatCacheLock);
         return SYS_MALLOC_ERR;
     }
     
     iFuseStatCache->stbuf = (struct stat *) calloc(1, sizeof ( struct stat));
     if(iFuseStatCache->stbuf == NULL) {
         _freeStatCache(iFuseStatCache);
-        pthread_mutex_unlock(&g_StatCacheLock);
         return SYS_MALLOC_ERR;
     }
     memcpy(iFuseStatCache->stbuf, stbuf, sizeof(struct stat));
-    
+
+    pthread_rwlock_wrlock(&g_StatCacheLock);
     
     it_statcachemap = g_StatCacheMap.find(pathkey);
     if(it_statcachemap != g_StatCacheMap.end()) {
@@ -157,7 +151,7 @@ static int _cacheStat(const char *iRodsPath, const struct stat *stbuf) {
     }
     g_StatCacheMap[pathkey] = iFuseStatCache;
     
-    pthread_mutex_unlock(&g_StatCacheLock);
+    pthread_rwlock_unlock(&g_StatCacheLock);
     return 0;
 }
 
@@ -173,7 +167,7 @@ static int _cacheDirEntry(const char *iRodsPath, const char *iRodsFilename) {
     
     std::string pathkey(iRodsPath);
 
-    pthread_mutex_lock(&g_DirCacheLock);
+    pthread_rwlock_wrlock(&g_DirCacheLock);
     
     // check if directory already exists
     it_dircachemap = g_DirCacheMap.find(pathkey);
@@ -191,14 +185,14 @@ static int _cacheDirEntry(const char *iRodsPath, const char *iRodsFilename) {
     if(create_new) {
         status = _newDirCache(&iFuseDirCache);
         if(status != 0) {
-            pthread_mutex_unlock(&g_DirCacheLock);
+            pthread_rwlock_unlock(&g_DirCacheLock);
             return status;
         }
         
         iFuseDirCache->iRodsPath = strdup(iRodsPath);
         if(iFuseDirCache->iRodsPath == NULL) {
             _freeDirCache(iFuseDirCache);
-            pthread_mutex_unlock(&g_DirCacheLock);
+            pthread_rwlock_unlock(&g_DirCacheLock);
             return SYS_MALLOC_ERR;
         }
         
@@ -208,14 +202,14 @@ static int _cacheDirEntry(const char *iRodsPath, const char *iRodsFilename) {
     if(iFuseDirCache->entries != NULL) {
         entry_name = strdup(iRodsFilename);
         if(entry_name == NULL) {
-            pthread_mutex_unlock(&g_DirCacheLock);
+            pthread_rwlock_unlock(&g_DirCacheLock);
             return SYS_MALLOC_ERR;
         }
         
         iFuseDirCache->entries->push_back(entry_name);
     }
     
-    pthread_mutex_unlock(&g_DirCacheLock);
+    pthread_rwlock_unlock(&g_DirCacheLock);
     return 0;
 }
 
@@ -228,7 +222,7 @@ static int _getStatCache(const char *iRodsPath, struct stat *stbuf) {
     assert(iRodsPath != NULL);
     assert(stbuf != NULL);
     
-    pthread_mutex_lock(&g_StatCacheLock);
+    pthread_rwlock_rdlock(&g_StatCacheLock);
 
     it_statcachemap = g_StatCacheMap.find(pathkey);
     if(it_statcachemap != g_StatCacheMap.end()) {
@@ -240,19 +234,16 @@ static int _getStatCache(const char *iRodsPath, struct stat *stbuf) {
                 status = 0;
             } else {
                 // expired
-                g_StatCacheMap.erase(it_statcachemap);
-                _freeStatCache(iFuseStatCache);
                 status = -ENOENT;
             }
         } else {
-            g_StatCacheMap.erase(it_statcachemap);
             status = -ENOENT;
         }
     } else {
         status = -ENOENT;
     }
     
-    pthread_mutex_unlock(&g_StatCacheLock);
+    pthread_rwlock_unlock(&g_StatCacheLock);
     return status;
 }
 
@@ -273,7 +264,7 @@ static int _getDirCache(const char *iRodsPath, char **entries, unsigned int *buf
     *entries = NULL;
     *bufferLen = 0;
     
-    pthread_mutex_lock(&g_DirCacheLock);
+    pthread_rwlock_rdlock(&g_DirCacheLock);
 
     it_dircachemap = g_DirCacheMap.find(pathkey);
     if(it_dircachemap != g_DirCacheMap.end()) {
@@ -293,7 +284,7 @@ static int _getDirCache(const char *iRodsPath, char **entries, unsigned int *buf
                 
                 entrybuffer = (char *) calloc(1, entrybufferlen);
                 if(entrybuffer == NULL) {
-                    pthread_mutex_unlock(&g_DirCacheLock);
+                    pthread_rwlock_unlock(&g_DirCacheLock);
                     return SYS_MALLOC_ERR;
                 }
                 
@@ -313,19 +304,16 @@ static int _getDirCache(const char *iRodsPath, char **entries, unsigned int *buf
                 status = 0;
             } else {
                 // expired
-                g_DirCacheMap.erase(it_dircachemap);
-                _freeDirCache(iFuseDirCache);
                 status = -ENOENT;
             }
         } else {
-            g_DirCacheMap.erase(it_dircachemap);
             status = -ENOENT;
         }
     } else {
        status = -ENOENT;
     }
     
-    pthread_mutex_unlock(&g_DirCacheLock);
+    pthread_rwlock_unlock(&g_DirCacheLock);
     return status;
 }
 
@@ -337,7 +325,7 @@ static int _checkFreshessOfDirCache(const char *iRodsPath) {
     
     assert(iRodsPath != NULL);
     
-    pthread_mutex_lock(&g_DirCacheLock);
+    pthread_rwlock_rdlock(&g_DirCacheLock);
 
     it_dircachemap = g_DirCacheMap.find(pathkey);
     if(it_dircachemap != g_DirCacheMap.end()) {
@@ -348,19 +336,52 @@ static int _checkFreshessOfDirCache(const char *iRodsPath) {
                 status = 0;
             } else {
                 // expired
-                g_DirCacheMap.erase(it_dircachemap);
-                _freeDirCache(iFuseDirCache);
                 status = -ENOENT;
             }
         } else {
-            g_DirCacheMap.erase(it_dircachemap);
             status = -ENOENT;
         }
     } else {
        status = -ENOENT;
     }
     
-    pthread_mutex_unlock(&g_DirCacheLock);
+    pthread_rwlock_unlock(&g_DirCacheLock);
+    return status;
+}
+
+static int _checkExistanceOfDirCacheEntry(const char *iRodsPath, const char *iRodsFilename) {
+    int status = 0;
+    std::string pathkey(iRodsPath);
+    std::map<std::string, iFuseDirCache_t*>::iterator it_dircachemap;
+    iFuseDirCache_t *iFuseDirCache = NULL;
+    std::list<char*>::iterator it_entrylist;
+    
+    assert(iRodsPath != NULL);
+    assert(iRodsFilename != NULL);
+    
+    pthread_rwlock_rdlock(&g_DirCacheLock);
+
+    it_dircachemap = g_DirCacheMap.find(pathkey);
+    if(it_dircachemap != g_DirCacheMap.end()) {
+        // has it
+        iFuseDirCache = it_dircachemap->second;
+        if(iFuseDirCache != NULL) {
+            status = 1;
+            for(it_entrylist=iFuseDirCache->entries->begin();it_entrylist!=iFuseDirCache->entries->end();it_entrylist++) {
+                char *entry = *it_entrylist;
+                if(strcmp(entry, iRodsFilename) == 0) {
+                    status = 0;
+                    break;
+                }
+            }
+        } else {
+            status = -ENOENT;
+        }
+    } else {
+        status = -ENOENT;
+    }
+    
+    pthread_rwlock_unlock(&g_DirCacheLock);
     return status;
 }
 
@@ -371,7 +392,7 @@ static int _removeStatCache(const char *iRodsPath) {
     
     assert(iRodsPath != NULL);
     
-    pthread_mutex_lock(&g_StatCacheLock);
+    pthread_rwlock_wrlock(&g_StatCacheLock);
 
     it_statcachemap = g_StatCacheMap.find(pathkey);
     if(it_statcachemap != g_StatCacheMap.end()) {
@@ -384,7 +405,7 @@ static int _removeStatCache(const char *iRodsPath) {
         }
     }
     
-    pthread_mutex_unlock(&g_StatCacheLock);
+    pthread_rwlock_unlock(&g_StatCacheLock);
     return 0;
 }
 
@@ -395,7 +416,7 @@ static int _removeDirCache(const char *iRodsPath) {
     
     assert(iRodsPath != NULL);
     
-    pthread_mutex_lock(&g_DirCacheLock);
+    pthread_rwlock_wrlock(&g_DirCacheLock);
 
     it_dircachemap = g_DirCacheMap.find(pathkey);
     if(it_dircachemap != g_DirCacheMap.end()) {
@@ -408,7 +429,7 @@ static int _removeDirCache(const char *iRodsPath) {
         }
     }
     
-    pthread_mutex_unlock(&g_DirCacheLock);
+    pthread_rwlock_unlock(&g_DirCacheLock);
     return 0;
 }
 
@@ -422,13 +443,14 @@ static int _removeDirCacheEntry(const char *iRodsPath, const char *iRodsFilename
     assert(iRodsPath != NULL);
     assert(iRodsFilename != NULL);
     
-    pthread_mutex_lock(&g_DirCacheLock);
+    pthread_rwlock_wrlock(&g_DirCacheLock);
 
     it_dircachemap = g_DirCacheMap.find(pathkey);
     if(it_dircachemap != g_DirCacheMap.end()) {
         // has it
         iFuseDirCache = it_dircachemap->second;
         if(iFuseDirCache != NULL) {
+            status = -ENOENT;
             for(it_entrylist=iFuseDirCache->entries->begin();it_entrylist!=iFuseDirCache->entries->end();it_entrylist++) {
                 char *entry = *it_entrylist;
                 if(strcmp(entry, iRodsFilename) == 0) {
@@ -438,7 +460,6 @@ static int _removeDirCacheEntry(const char *iRodsPath, const char *iRodsFilename
                     break;
                 }
             }
-            status = -ENOENT;
         } else {
             g_DirCacheMap.erase(it_dircachemap);
             status = -ENOENT;
@@ -447,7 +468,7 @@ static int _removeDirCacheEntry(const char *iRodsPath, const char *iRodsFilename
         status = -ENOENT;
     }
     
-    pthread_mutex_unlock(&g_DirCacheLock);
+    pthread_rwlock_unlock(&g_DirCacheLock);
     return status;
 }
 
@@ -457,7 +478,7 @@ static int _clearExpiredStatCache() {
     std::list<iFuseStatCache_t*> removeListStatData;
     iFuseStatCache_t *iFuseStatCache = NULL;
 
-    pthread_mutex_lock(&g_StatCacheLock);
+    pthread_rwlock_wrlock(&g_StatCacheLock);
 
     // release all caches
     for(it_statcachemap=g_StatCacheMap.begin();it_statcachemap!=g_StatCacheMap.end();it_statcachemap++) {
@@ -487,9 +508,7 @@ static int _clearExpiredStatCache() {
         _freeStatCache(iFuseStatCache);
     }
     
-    pthread_mutex_unlock(&g_StatCacheLock);
-    
-    g_LastStatCacheTimeoutCheck = iFuseLibGetCurrentTime();
+    pthread_rwlock_unlock(&g_StatCacheLock);
     return 0;
 }
 
@@ -499,7 +518,7 @@ static int _clearExpiredDirCache() {
     std::list<iFuseDirCache_t*> removeListDirData;
     iFuseDirCache_t *iFuseDirCache = NULL;
 
-    pthread_mutex_lock(&g_DirCacheLock);
+    pthread_rwlock_wrlock(&g_DirCacheLock);
 
     // release all caches
     for(it_dircachemap=g_DirCacheMap.begin();it_dircachemap!=g_DirCacheMap.end();it_dircachemap++) {
@@ -529,7 +548,7 @@ static int _clearExpiredDirCache() {
         _freeDirCache(iFuseDirCache);
     }
     
-    pthread_mutex_unlock(&g_DirCacheLock);
+    pthread_rwlock_unlock(&g_DirCacheLock);
     return 0;
 }
 
@@ -539,7 +558,7 @@ static int _releaseAllCache() {
     iFuseStatCache_t *iFuseStatCache = NULL;
     iFuseDirCache_t *iFuseDirCache = NULL;
 
-    pthread_mutex_lock(&g_StatCacheLock);
+    pthread_rwlock_wrlock(&g_StatCacheLock);
 
     // release all caches
     while(!g_StatCacheMap.empty()) {
@@ -554,9 +573,9 @@ static int _releaseAllCache() {
         }
     }
 
-    pthread_mutex_unlock(&g_StatCacheLock);
+    pthread_rwlock_unlock(&g_StatCacheLock);
     
-    pthread_mutex_lock(&g_DirCacheLock);
+    pthread_rwlock_wrlock(&g_DirCacheLock);
 
     // release all caches
     while(!g_DirCacheMap.empty()) {
@@ -571,7 +590,7 @@ static int _releaseAllCache() {
         }
     }
 
-    pthread_mutex_unlock(&g_DirCacheLock);
+    pthread_rwlock_unlock(&g_DirCacheLock);
     
     return 0;
 }
@@ -584,13 +603,11 @@ void iFuseMetadataCacheInit() {
         g_metadataCacheTimeoutSec = iFuseLibGetOption()->metadataCacheTimeoutSec;
     }
     
-    pthread_mutexattr_init(&g_StatCacheLockAttr);
-    pthread_mutexattr_settype(&g_StatCacheLockAttr, PTHREAD_MUTEX_RECURSIVE);
-    pthread_mutex_init(&g_StatCacheLock, &g_StatCacheLockAttr);
+    pthread_rwlockattr_init(&g_StatCacheLockAttr);
+    pthread_rwlock_init(&g_StatCacheLock, &g_StatCacheLockAttr);
     
-    pthread_mutexattr_init(&g_DirCacheLockAttr);
-    pthread_mutexattr_settype(&g_DirCacheLockAttr, PTHREAD_MUTEX_RECURSIVE);
-    pthread_mutex_init(&g_DirCacheLock, &g_DirCacheLockAttr);
+    pthread_rwlockattr_init(&g_DirCacheLockAttr);
+    pthread_rwlock_init(&g_DirCacheLock, &g_DirCacheLockAttr);
 }
 
 /*
@@ -599,11 +616,11 @@ void iFuseMetadataCacheInit() {
 void iFuseMetadataCacheDestroy() {
     _releaseAllCache();
 
-    pthread_mutex_destroy(&g_StatCacheLock);
-    pthread_mutexattr_destroy(&g_StatCacheLockAttr);
+    pthread_rwlock_destroy(&g_StatCacheLock);
+    pthread_rwlockattr_destroy(&g_StatCacheLockAttr);
     
-    pthread_mutex_destroy(&g_DirCacheLock);
-    pthread_mutexattr_destroy(&g_DirCacheLockAttr);
+    pthread_rwlock_destroy(&g_DirCacheLock);
+    pthread_rwlockattr_destroy(&g_DirCacheLockAttr);
 }
 
 void iFuseMetadataCacheClear() {
@@ -611,8 +628,8 @@ void iFuseMetadataCacheClear() {
 }
 
 int iFuseMetadataCacheClearExpiredStat(bool force) {
-    
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCacheClearExpiredStat");
+    int status;
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCacheClearExpiredStat");
     
     if(!force) {
         if(iFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), g_LastStatCacheTimeoutCheck) <= (g_metadataCacheTimeoutSec / 2)) {
@@ -620,14 +637,16 @@ int iFuseMetadataCacheClearExpiredStat(bool force) {
         }
     }
     
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCacheClearExpiredStat: Clearing expired stat cache");
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCacheClearExpiredStat: Clearing expired stat cache");
 
-    return _clearExpiredStatCache();
+    status = _clearExpiredStatCache();
+    g_LastStatCacheTimeoutCheck = iFuseLibGetCurrentTime();
+    return status;
 }
 
 int iFuseMetadataCacheClearExpiredDir(bool force) {
-    
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCacheClearExpiredDir");
+    int status;
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCacheClearExpiredDir");
     
     if(!force) {
         if(iFuseLibDiffTimeSec(iFuseLibGetCurrentTime(), g_LastDirCacheTimeoutCheck) <= (g_metadataCacheTimeoutSec / 2)) {
@@ -635,14 +654,16 @@ int iFuseMetadataCacheClearExpiredDir(bool force) {
         }
     }
     
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCacheClearExpiredDir: Clearing expired dir cache");
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCacheClearExpiredDir: Clearing expired dir cache");
 
-    return _clearExpiredDirCache();
+    status = _clearExpiredDirCache();
+    g_LastDirCacheTimeoutCheck = iFuseLibGetCurrentTime();
+    return status;
 }
 
 int iFuseMetadataCachePutStat(const char *iRodsPath, const struct stat *stbuf) {
     
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCachePutStat: %s", iRodsPath);
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCachePutStat: %s", iRodsPath);
     
     return _cacheStat(iRodsPath, stbuf);
 }
@@ -651,7 +672,7 @@ int iFuseMetadataCachePutStat2(const char *iRodsDirPath, const char *iRodsFilena
     int status;
     char path[MAX_NAME_LEN];
     
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCachePutStat2: %s, %s", iRodsDirPath, iRodsFilename);
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCachePutStat2: %s, %s", iRodsDirPath, iRodsFilename);
     
     status = iFuseLibJoinPath(iRodsDirPath, iRodsFilename, path, MAX_NAME_LEN);
     if(status != 0) {
@@ -662,7 +683,7 @@ int iFuseMetadataCachePutStat2(const char *iRodsDirPath, const char *iRodsFilena
 
 int iFuseMetadataCacheAddDirEntry(const char *iRodsPath, const char *iRodsFilename) {
     
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCacheAddDirEntry: %s, %s", iRodsPath, iRodsFilename);
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCacheAddDirEntry: %s, %s", iRodsPath, iRodsFilename);
     
     return _cacheDirEntry(iRodsPath, iRodsFilename);
 }
@@ -670,7 +691,7 @@ int iFuseMetadataCacheAddDirEntry(const char *iRodsPath, const char *iRodsFilena
 int iFuseMetadataCacheAddDirEntryIfFresh(const char *iRodsPath, const char *iRodsFilename) {
     int status;
     
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCacheAddDirEntryIfFresh: %s, %s", iRodsPath, iRodsFilename);
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCacheAddDirEntryIfFresh: %s, %s", iRodsPath, iRodsFilename);
     
     status = _checkFreshessOfDirCache(iRodsPath);
     if(status != 0) {
@@ -685,7 +706,7 @@ int iFuseMetadataCacheAddDirEntryIfFresh2(const char *iRodsPath) {
     char myDir[MAX_NAME_LEN];
     char myEntry[MAX_NAME_LEN];
     
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCacheAddDirEntryIfFresh2: %s", iRodsPath);
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCacheAddDirEntryIfFresh2: %s", iRodsPath);
 
     status = iFuseLibSplitPath(iRodsPath, myDir, MAX_NAME_LEN, myEntry, MAX_NAME_LEN);
     if(status != 0) {
@@ -702,35 +723,50 @@ int iFuseMetadataCacheAddDirEntryIfFresh2(const char *iRodsPath) {
 
 int iFuseMetadataCacheGetStat(const char *iRodsPath, struct stat *stbuf) {
     
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCacheGetStat: %s", iRodsPath);
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCacheGetStat: %s", iRodsPath);
     
     return _getStatCache(iRodsPath, stbuf);
 }
 
 int iFuseMetadataCacheGetDirEntry(const char *iRodsPath, char **entries, unsigned int *bufferLen) {
     
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCacheGetDirEntry: %s", iRodsPath);
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCacheGetDirEntry: %s", iRodsPath);
     
     return _getDirCache(iRodsPath, entries, bufferLen);
 }
 
+int iFuseMetadataCacheCheckExistanceOfDirEntry(const char *iRodsPath) {
+    int status;
+    char myDir[MAX_NAME_LEN];
+    char myEntry[MAX_NAME_LEN];
+    
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCacheCheckExistanceOfDirEntry: %s", iRodsPath);
+    
+    status = iFuseLibSplitPath(iRodsPath, myDir, MAX_NAME_LEN, myEntry, MAX_NAME_LEN);
+    if(status != 0) {
+        return status;
+    }
+    
+    return _checkExistanceOfDirCacheEntry(myDir, myEntry);
+}
+
 int iFuseMetadataCacheRemoveStat(const char *iRodsPath) {
     
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCacheRemoveStat: %s", iRodsPath);
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCacheRemoveStat: %s", iRodsPath);
     
     return _removeStatCache(iRodsPath);
 }
 
 int iFuseMetadataCacheRemoveDir(const char *iRodsPath) {
     
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCacheRemoveDir: %s", iRodsPath);
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCacheRemoveDir: %s", iRodsPath);
     
     return _removeDirCache(iRodsPath);
 }
 
 int iFuseMetadataCacheRemoveDirEntry(const char *iRodsPath, const char *iRodsFilename) {
     
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCacheRemoveDirEntry: %s, %s", iRodsPath, iRodsFilename);
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCacheRemoveDirEntry: %s, %s", iRodsPath, iRodsFilename);
     
     return _removeDirCacheEntry(iRodsPath, iRodsFilename);
 }
@@ -740,7 +776,7 @@ int iFuseMetadataCacheRemoveDirEntry2(const char *iRodsPath) {
     char myDir[MAX_NAME_LEN];
     char myEntry[MAX_NAME_LEN];
 
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseMetadataCacheRemoveDirEntry2: %s", iRodsPath);
+    iFuseLibLog(LOG_DEBUG, "iFuseMetadataCacheRemoveDirEntry2: %s", iRodsPath);
 
     status = iFuseLibSplitPath(iRodsPath, myDir, MAX_NAME_LEN, myEntry, MAX_NAME_LEN);
     if(status != 0) {

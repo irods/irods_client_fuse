@@ -19,8 +19,8 @@
 #include "iFuse.Lib.RodsClientAPI.hpp"
 #include "miscUtil.h"
 
-static pthread_mutexattr_t g_BufferCacheLockAttr;
-static pthread_mutex_t g_BufferCacheLock;
+static pthread_rwlockattr_t g_BufferCacheLockAttr;
+static pthread_rwlock_t g_BufferCacheLock;
 
 static std::map<std::string, iFuseBufferCache_t*> g_DeltaMap;
 static std::map<unsigned long, iFuseBufferCache_t*> g_CacheMap;
@@ -109,12 +109,10 @@ static void _applyDeltaToCache(const char *iRodsPath, const char *buf, off_t off
     assert(off >= 0);
     assert(size > 0);
 
-    pthread_mutex_lock(&g_BufferCacheLock);
-
     for (it_cachemap = g_CacheMap.begin(); it_cachemap != g_CacheMap.end(); it_cachemap++) {
         iFuseBufferCache = it_cachemap->second;
 
-        iFuseRodsClientLog(LOG_DEBUG, "_applyDeltaToCache: comp %s - %s", iFuseBufferCache->iRodsPath, iRodsPath);
+        iFuseLibLog(LOG_DEBUG, "_applyDeltaToCache: comp %s - %s", iFuseBufferCache->iRodsPath, iRodsPath);
         if (strcmp(iFuseBufferCache->iRodsPath, iRodsPath) == 0) {
             if (_isSameBlock(iFuseBufferCache->offset, off)) {
                 // update
@@ -129,8 +127,6 @@ static void _applyDeltaToCache(const char *iRodsPath, const char *buf, off_t off
             }
         }
     }
-
-    pthread_mutex_unlock(&g_BufferCacheLock);
 }
 
 static int _flushDelta(iFuseFd_t *iFuseFd) {
@@ -142,7 +138,7 @@ static int _flushDelta(iFuseFd_t *iFuseFd) {
     assert(iFuseFd != NULL);
 
     if((iFuseFd->openFlag & O_ACCMODE) != O_RDONLY) {
-        pthread_mutex_lock(&g_BufferCacheLock);
+        pthread_rwlock_wrlock(&g_BufferCacheLock);
 
         it_deltamap = g_DeltaMap.find(pathkey);
         if(it_deltamap != g_DeltaMap.end()) {
@@ -153,13 +149,13 @@ static int _flushDelta(iFuseFd_t *iFuseFd) {
 
             // apply to caches
             _applyDeltaToCache(iFuseFd->iRodsPath, iFuseBufferCache->buffer, iFuseBufferCache->offset, iFuseBufferCache->size);
-
+            
             // release lock before making a write request
-            pthread_mutex_unlock(&g_BufferCacheLock);
+            pthread_rwlock_unlock(&g_BufferCacheLock);
 
             status = iFuseFsWrite(iFuseFd, iFuseBufferCache->buffer, iFuseBufferCache->offset, iFuseBufferCache->size);
             if (status < 0) {
-                iFuseRodsClientLogError(LOG_ERROR, status, "_flushDelta: iFuseFsWrite of %s error, status = %d",
+                iFuseLibLogError(LOG_ERROR, status, "_flushDelta: iFuseFsWrite of %s error, status = %d",
                         iFuseFd->iRodsPath, status);
                 return -ENOENT;
             }
@@ -167,7 +163,7 @@ static int _flushDelta(iFuseFd_t *iFuseFd) {
             // release
             _freeBufferCache(iFuseBufferCache);
         } else {
-            pthread_mutex_unlock(&g_BufferCacheLock);
+            pthread_rwlock_unlock(&g_BufferCacheLock);
         }
     }
 
@@ -189,7 +185,7 @@ static int _readBlock(iFuseFd_t *iFuseFd, char *buf, unsigned int blockID) {
 
     blockStartOffset = getBlockStartOffset(blockID);
 
-    pthread_mutex_lock(&g_BufferCacheLock);
+    pthread_rwlock_rdlock(&g_BufferCacheLock);
 
     // check cache
     it_cachemap = g_CacheMap.find(iFuseFd->fdId);
@@ -203,20 +199,29 @@ static int _readBlock(iFuseFd_t *iFuseFd, char *buf, unsigned int blockID) {
 
             readSize = iFuseBufferCache->size;
             hasCache = true;
-        } else {
+        }
+    }
+
+    pthread_rwlock_unlock(&g_BufferCacheLock);
+
+
+    if(!hasCache) {
+        char *blockBuffer = NULL;
+        
+        // remove
+        pthread_rwlock_wrlock(&g_BufferCacheLock);
+        it_cachemap = g_CacheMap.find(iFuseFd->fdId);
+        if(it_cachemap != g_CacheMap.end()) {
+            iFuseBufferCache = it_cachemap->second;
+            
             g_CacheMap.erase(it_cachemap);
 
             // release
             _freeBufferCache(iFuseBufferCache);
         }
-    }
-
-    // temporarily unlock mutex
-    pthread_mutex_unlock(&g_BufferCacheLock);
-
-    if(!hasCache) {
-        char *blockBuffer = NULL;
-
+        pthread_rwlock_unlock(&g_BufferCacheLock);
+        
+        // read
         status = _newBufferCache(&iFuseBufferCache);
         if(status < 0) {
             return status;
@@ -233,14 +238,14 @@ static int _readBlock(iFuseFd_t *iFuseFd, char *buf, unsigned int blockID) {
 
         status = iFuseFsRead(iFuseFd, blockBuffer, blockStartOffset, g_Blocksize);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, "_readBlock: iFuseFsRead of %s error, status = %d",
+            iFuseLibLogError(LOG_ERROR, status, "_readBlock: iFuseFsRead of %s error, status = %d",
                     iFuseFd->iRodsPath, status);
             free(blockBuffer);
             _freeBufferCache(iFuseBufferCache);
             return -ENOENT;
         }
 
-        iFuseRodsClientLog(LOG_DEBUG, "_readBlock: iFuseFsRead of %s - offset: %lld, size: %lld", iFuseFd->iRodsPath, (long long)blockStartOffset, (long long)status);
+        iFuseLibLog(LOG_DEBUG, "_readBlock: iFuseFsRead of %s - offset: %lld, size: %lld", iFuseFd->iRodsPath, (long long)blockStartOffset, (long long)status);
 
         iFuseBufferCache->fdId = iFuseFd->fdId;
         iFuseBufferCache->iRodsPath = strdup(iFuseFd->iRodsPath);
@@ -248,7 +253,7 @@ static int _readBlock(iFuseFd_t *iFuseFd, char *buf, unsigned int blockID) {
         iFuseBufferCache->offset = blockStartOffset;
         iFuseBufferCache->size = status;
 
-        pthread_mutex_lock(&g_BufferCacheLock);
+        pthread_rwlock_wrlock(&g_BufferCacheLock);
 
         g_CacheMap[iFuseFd->fdId] = iFuseBufferCache;
 
@@ -257,10 +262,10 @@ static int _readBlock(iFuseFd_t *iFuseFd, char *buf, unsigned int blockID) {
 
         readSize = iFuseBufferCache->size;
 
-        pthread_mutex_unlock(&g_BufferCacheLock);
+        pthread_rwlock_unlock(&g_BufferCacheLock);
     }
 
-    pthread_mutex_lock(&g_BufferCacheLock);
+    pthread_rwlock_rdlock(&g_BufferCacheLock);
 
     // check delta
     it_deltamap = g_DeltaMap.find(pathkey);
@@ -284,7 +289,7 @@ static int _readBlock(iFuseFd_t *iFuseFd, char *buf, unsigned int blockID) {
         }
     }
 
-    pthread_mutex_unlock(&g_BufferCacheLock);
+    pthread_rwlock_unlock(&g_BufferCacheLock);
     return readSize;
 }
 
@@ -298,7 +303,7 @@ static int _writeBlock(iFuseFd_t *iFuseFd, const char *buf, off_t off, size_t si
     assert(buf != NULL);
     assert(size > 0);
 
-    pthread_mutex_lock(&g_BufferCacheLock);
+    pthread_rwlock_wrlock(&g_BufferCacheLock);
 
     it_deltamap = g_DeltaMap.find(pathkey);
     if(it_deltamap != g_DeltaMap.end()) {
@@ -314,7 +319,7 @@ static int _writeBlock(iFuseFd_t *iFuseFd, const char *buf, off_t off, size_t si
             size_t newSize = endOffset - startOffset;
             char *newBuf = (char*)calloc(1, newSize);
             if(newBuf == NULL) {
-                pthread_mutex_unlock(&g_BufferCacheLock);
+                pthread_rwlock_unlock(&g_BufferCacheLock);
                 return SYS_MALLOC_ERR;
             }
 
@@ -331,7 +336,7 @@ static int _writeBlock(iFuseFd_t *iFuseFd, const char *buf, off_t off, size_t si
             iFuseBufferCache->offset = startOffset;
             iFuseBufferCache->size = newSize;
 
-            pthread_mutex_unlock(&g_BufferCacheLock);
+            pthread_rwlock_unlock(&g_BufferCacheLock);
         } else {
             char *newBuf = (char*)calloc(1, size);
             char *bufFlush = iFuseBufferCache->buffer;
@@ -339,11 +344,11 @@ static int _writeBlock(iFuseFd_t *iFuseFd, const char *buf, off_t off, size_t si
             size_t sizeFlush = iFuseBufferCache->size;
 
             if(newBuf == NULL) {
-                pthread_mutex_unlock(&g_BufferCacheLock);
+                pthread_rwlock_unlock(&g_BufferCacheLock);
                 return SYS_MALLOC_ERR;
             }
 
-            // discrete
+            // disjunction
             // apply delta to caches
             _applyDeltaToCache(iFuseFd->iRodsPath, iFuseBufferCache->buffer, iFuseBufferCache->offset, iFuseBufferCache->size);
 
@@ -353,13 +358,13 @@ static int _writeBlock(iFuseFd_t *iFuseFd, const char *buf, off_t off, size_t si
             iFuseBufferCache->offset = off;
             iFuseBufferCache->size = size;
 
-            // release mutex before making write request
-            pthread_mutex_unlock(&g_BufferCacheLock);
+            // release lock before making write request
+            pthread_rwlock_unlock(&g_BufferCacheLock);
 
             // flush
             status = iFuseFsWrite(iFuseFd, bufFlush, offFlush, sizeFlush);
             if (status < 0) {
-                iFuseRodsClientLogError(LOG_ERROR, status, "_writeBlock: iFuseFsWrite of %s error, status = %d",
+                iFuseLibLogError(LOG_ERROR, status, "_writeBlock: iFuseFsWrite of %s error, status = %d",
                         iFuseFd->iRodsPath, status);
                 return -ENOENT;
             }
@@ -369,14 +374,14 @@ static int _writeBlock(iFuseFd_t *iFuseFd, const char *buf, off_t off, size_t si
     } else {
         char *newBuf = (char*)calloc(1, size);
         if(newBuf == NULL) {
-            pthread_mutex_unlock(&g_BufferCacheLock);
+            pthread_rwlock_unlock(&g_BufferCacheLock);
             return SYS_MALLOC_ERR;
         }
 
         // no delta
         status = _newBufferCache(&iFuseBufferCache);
         if(status < 0) {
-            pthread_mutex_unlock(&g_BufferCacheLock);
+            pthread_rwlock_unlock(&g_BufferCacheLock);
             return status;
         }
 
@@ -392,7 +397,7 @@ static int _writeBlock(iFuseFd_t *iFuseFd, const char *buf, off_t off, size_t si
 
         g_DeltaMap[pathkey] = iFuseBufferCache;
 
-        pthread_mutex_unlock(&g_BufferCacheLock);
+        pthread_rwlock_unlock(&g_BufferCacheLock);
     }
 
     return 0;
@@ -403,7 +408,7 @@ static int _releaseAllCache() {
     std::map<unsigned long, iFuseBufferCache_t*>::iterator it_cachemap;
     iFuseBufferCache_t *iFuseBufferCache = NULL;
 
-    pthread_mutex_lock(&g_BufferCacheLock);
+    pthread_rwlock_wrlock(&g_BufferCacheLock);
 
     // release all caches
     while(!g_DeltaMap.empty()) {
@@ -426,7 +431,7 @@ static int _releaseAllCache() {
         }
     }
 
-    pthread_mutex_unlock(&g_BufferCacheLock);
+    pthread_rwlock_unlock(&g_BufferCacheLock);
     return 0;
 }
 
@@ -439,9 +444,8 @@ void iFuseBufferedFSInit() {
         g_Blocksize = iFuseLibGetOption()->blocksize;
     }
    
-    pthread_mutexattr_init(&g_BufferCacheLockAttr);
-    pthread_mutexattr_settype(&g_BufferCacheLockAttr, PTHREAD_MUTEX_RECURSIVE);
-    pthread_mutex_init(&g_BufferCacheLock, &g_BufferCacheLockAttr);
+    pthread_rwlockattr_init(&g_BufferCacheLockAttr);
+    pthread_rwlock_init(&g_BufferCacheLock, &g_BufferCacheLockAttr);
 }
 
 /*
@@ -450,8 +454,8 @@ void iFuseBufferedFSInit() {
 void iFuseBufferedFSDestroy() {
     _releaseAllCache();
 
-    pthread_mutex_destroy(&g_BufferCacheLock);
-    pthread_mutexattr_destroy(&g_BufferCacheLockAttr);
+    pthread_rwlock_destroy(&g_BufferCacheLock);
+    pthread_rwlockattr_destroy(&g_BufferCacheLockAttr);
 }
 
 int iFuseBufferedFsGetAttr(const char *iRodsPath, struct stat *stbuf) {
@@ -463,16 +467,16 @@ int iFuseBufferedFsGetAttr(const char *iRodsPath, struct stat *stbuf) {
     assert(iRodsPath != NULL);
     assert(stbuf != NULL);
 
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseBufferedFsGetAttr: %s", iRodsPath);
+    iFuseLibLog(LOG_DEBUG, "iFuseBufferedFsGetAttr: %s", iRodsPath);
 
     status = iFuseFsGetAttr(iRodsPath, stbuf);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, "iFuseBufferedFsGetAttr: iFuseFsGetAttr of %s error, status = %d",
+        iFuseLibLogError(LOG_ERROR, status, "iFuseBufferedFsGetAttr: iFuseFsGetAttr of %s error, status = %d",
                 iRodsPath, status);
         return status;
     }
 
-    pthread_mutex_lock(&g_BufferCacheLock);
+    pthread_rwlock_rdlock(&g_BufferCacheLock);
 
     it_deltamap = g_DeltaMap.find(pathkey);
     if(it_deltamap != g_DeltaMap.end()) {
@@ -485,7 +489,7 @@ int iFuseBufferedFsGetAttr(const char *iRodsPath, struct stat *stbuf) {
         }
     }
 
-    pthread_mutex_unlock(&g_BufferCacheLock);
+    pthread_rwlock_unlock(&g_BufferCacheLock);
     return status;
 }
 
@@ -498,11 +502,11 @@ int iFuseBufferedFsOpen(const char *iRodsPath, iFuseFd_t **iFuseFd, int openFlag
     assert(iRodsPath != NULL);
     assert(iFuseFd != NULL);
 
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseBufferedFsOpen: %s, openFlag: 0x%08x", iRodsPath, openFlag);
+    iFuseLibLog(LOG_DEBUG, "iFuseBufferedFsOpen: %s, openFlag: 0x%08x", iRodsPath, openFlag);
 
     status = iFuseFsOpen(iRodsPath, iFuseFd, openFlag);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, "iFuseBufferedFsOpen: iFuseFsOpen of %s error, status = %d",
+        iFuseLibLogError(LOG_ERROR, status, "iFuseBufferedFsOpen: iFuseFsOpen of %s error, status = %d",
                 iRodsPath, status);
         return status;
     }
@@ -521,19 +525,19 @@ int iFuseBufferedFsClose(iFuseFd_t *iFuseFd) {
 
     assert(iFuseFd != NULL);
 
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseBufferedFsClose: %s", iFuseFd->iRodsPath);
+    iFuseLibLog(LOG_DEBUG, "iFuseBufferedFsClose: %s", iFuseFd->iRodsPath);
 
     if((iFuseFd->openFlag & O_ACCMODE) != O_RDONLY) {
         // flush if necessary
         status = _flushDelta(iFuseFd);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, "iFuseBufferedFsClose: _flushCache of %s error, status = %d",
+            iFuseLibLogError(LOG_ERROR, status, "iFuseBufferedFsClose: _flushCache of %s error, status = %d",
                     iFuseFd->iRodsPath, status);
             return -ENOENT;
         }
     }
 
-    pthread_mutex_lock(&g_BufferCacheLock);
+    pthread_rwlock_wrlock(&g_BufferCacheLock);
 
     it_cachemap = g_CacheMap.find(iFuseFd->fdId);
     if(it_cachemap != g_CacheMap.end()) {
@@ -544,13 +548,13 @@ int iFuseBufferedFsClose(iFuseFd_t *iFuseFd) {
         _freeBufferCache(iFuseBufferCache);
     }
 
-    pthread_mutex_unlock(&g_BufferCacheLock);
+    pthread_rwlock_unlock(&g_BufferCacheLock);
 
     iRodsPath = strdup(iFuseFd->iRodsPath);
 
     status = iFuseFsClose(iFuseFd);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, "iFuseBufferedFsClose: iFuseFsClose of %s error, status = %d",
+        iFuseLibLogError(LOG_ERROR, status, "iFuseBufferedFsClose: iFuseFsClose of %s error, status = %d",
                 iRodsPath, status);
         free(iRodsPath);
         return -ENOENT;
@@ -568,12 +572,12 @@ int iFuseBufferedFsFlush(iFuseFd_t *iFuseFd) {
 
     assert(iFuseFd != NULL);
 
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseBufferedFsFlush: %s", iFuseFd->iRodsPath);
+    iFuseLibLog(LOG_DEBUG, "iFuseBufferedFsFlush: %s", iFuseFd->iRodsPath);
 
     if((iFuseFd->openFlag & O_ACCMODE) != O_RDONLY) {
         status = _flushDelta(iFuseFd);
         if (status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, "iFuseBufferedFsFlush: _flushCache of %s error, status = %d",
+            iFuseLibLogError(LOG_ERROR, status, "iFuseBufferedFsFlush: _flushCache of %s error, status = %d",
                     iFuseFd->iRodsPath, status);
             return -ENOENT;
         }
@@ -581,7 +585,7 @@ int iFuseBufferedFsFlush(iFuseFd_t *iFuseFd) {
 
     status = iFuseFsFlush(iFuseFd);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, "iFuseBufferedFsFlush: iFuseFsFlush of %s error, status = %d",
+        iFuseLibLogError(LOG_ERROR, status, "iFuseBufferedFsFlush: iFuseFsFlush of %s error, status = %d",
                 iFuseFd->iRodsPath, status);
         return -ENOENT;
     }
@@ -595,11 +599,11 @@ int iFuseBufferedFsReadBlock(iFuseFd_t *iFuseFd, char *buf, unsigned int blockID
     assert(iFuseFd != NULL);
     assert(buf != NULL);
 
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseBufferedFsReadBlock: %s, blockID: %u", iFuseFd->iRodsPath, blockID);
+    iFuseLibLog(LOG_DEBUG, "iFuseBufferedFsReadBlock: %s, blockID: %u", iFuseFd->iRodsPath, blockID);
 
     status = _readBlock(iFuseFd, buf, blockID);
     if(status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, "iFuseBufferedFsReadBlock: _readBlock of %s error, status = %d",
+        iFuseLibLogError(LOG_ERROR, status, "iFuseBufferedFsReadBlock: _readBlock of %s error, status = %d",
             iFuseFd->iRodsPath, status);
         return status;
     }
@@ -623,7 +627,7 @@ int iFuseBufferedFsRead(iFuseFd_t *iFuseFd, char *buf, off_t off, size_t size) {
     assert(iFuseFd != NULL);
     assert(buf != NULL);
 
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseBufferedFsRead: %s, offset: %lld, size: %lld", iFuseFd->iRodsPath, (long long)off, (long long)size);
+    iFuseLibLog(LOG_DEBUG, "iFuseBufferedFsRead: %s, offset: %lld, size: %lld", iFuseFd->iRodsPath, (long long)off, (long long)size);
 
     // read in block level
     remain = size;
@@ -636,7 +640,7 @@ int iFuseBufferedFsRead(iFuseFd_t *iFuseFd, char *buf, off_t off, size_t size) {
 
         status = _readBlock(iFuseFd, blockBuffer, getBlockID(curOffset));
         if(status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, "iFuseBufferedFsRead: _readBlock of %s error, status = %d",
+            iFuseLibLogError(LOG_ERROR, status, "iFuseBufferedFsRead: _readBlock of %s error, status = %d",
                 iFuseFd->iRodsPath, status);
             return status;
         } else if(status == 0) {
@@ -646,7 +650,7 @@ int iFuseBufferedFsRead(iFuseFd_t *iFuseFd, char *buf, off_t off, size_t size) {
 
         blockSize = (size_t)status;
 
-        iFuseRodsClientLog(LOG_DEBUG, "iFuseBufferedFsRead: _readBlock of %s, offset: %lld, in-block offset: %lld, curSize: %lld, size: %lld", iFuseFd->iRodsPath, (long long)curOffset, (long long)inBlockOffset, (long long)curSize, (long long)blockSize);
+        iFuseLibLog(LOG_DEBUG, "iFuseBufferedFsRead: _readBlock of %s, offset: %lld, in-block offset: %lld, curSize: %lld, size: %lld", iFuseFd->iRodsPath, (long long)curOffset, (long long)inBlockOffset, (long long)curSize, (long long)blockSize);
 
         if(inBlockOffset + curSize > blockSize) {
             curSize = blockSize - inBlockOffset;
@@ -657,7 +661,7 @@ int iFuseBufferedFsRead(iFuseFd_t *iFuseFd, char *buf, off_t off, size_t size) {
             break;
         }
 
-        iFuseRodsClientLog(LOG_DEBUG, "iFuseBufferedFsRead: block read of %s - offset %lld, size %lld", iFuseFd->iRodsPath, (long long)curOffset, (long long)curSize);
+        iFuseLibLog(LOG_DEBUG, "iFuseBufferedFsRead: block read of %s - offset %lld, size %lld", iFuseFd->iRodsPath, (long long)curOffset, (long long)curSize);
 
         // copy
         memcpy(buf + readSize, blockBuffer + inBlockOffset, curSize);
@@ -689,7 +693,7 @@ int iFuseBufferedFsWrite(iFuseFd_t *iFuseFd, const char *buf, off_t off, size_t 
     assert(iFuseFd != NULL);
     assert(buf != NULL);
 
-    iFuseRodsClientLog(LOG_DEBUG, "iFuseBufferedFsWrite: %s, offset: %lld, size: %lld", iFuseFd->iRodsPath, (long long)off, (long long)size);
+    iFuseLibLog(LOG_DEBUG, "iFuseBufferedFsWrite: %s, offset: %lld, size: %lld", iFuseFd->iRodsPath, (long long)off, (long long)size);
 
     // write in block level
     remain = size;
@@ -703,7 +707,7 @@ int iFuseBufferedFsWrite(iFuseFd_t *iFuseFd, const char *buf, off_t off, size_t 
 
         status = _writeBlock(iFuseFd, buf + writtenSize, curOffset, curSize);
         if(status < 0) {
-            iFuseRodsClientLogError(LOG_ERROR, status, "iFuseBufferedFsWrite: _writeBlock of %s error, status = %d",
+            iFuseLibLogError(LOG_ERROR, status, "iFuseBufferedFsWrite: _writeBlock of %s error, status = %d",
                 iFuseFd->iRodsPath, status);
             return status;
         }

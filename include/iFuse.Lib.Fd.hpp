@@ -16,8 +16,8 @@ typedef struct IFuseFd {
     char *iRodsPath;
     int openFlag;
     off_t lastFilePointer;
-    pthread_mutexattr_t lockAttr;
-    pthread_mutex_t lock;
+    pthread_rwlockattr_t lockAttr;
+    pthread_rwlock_t lock;
 } iFuseFd_t;
 
 typedef struct IFuseDir {
@@ -27,14 +27,12 @@ typedef struct IFuseDir {
     char *iRodsPath;
     char *cachedEntries;
     unsigned int cachedEntryBufferLen;
-    pthread_mutexattr_t lockAttr;
-    pthread_mutex_t lock;
+    pthread_rwlockattr_t lockAttr;
+    pthread_rwlock_t lock;
 } iFuseDir_t;
 
 void iFuseFdInit();
-void iFuseDirInit();
 void iFuseFdDestroy();
-void iFuseDirDestroy();
 int iFuseFdOpen(iFuseFd_t **iFuseFd, iFuseConn_t *iFuseConn, const char* iRodsPath, int openFlag);
 int iFuseFdReopen(iFuseFd_t *iFuseFd);
 int iFuseDirOpen(iFuseDir_t **iFuseDir, iFuseConn_t *iFuseConn, const char* iRodsPath);

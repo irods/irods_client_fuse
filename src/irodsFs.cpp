@@ -10,6 +10,7 @@
 #include <assert.h>
 #include <pthread.h>
 #include "rodsClient.h"
+#include "rcMisc.h"
 #include "parseCommandLine.h"
 #include "iFuse.Preload.hpp"
 #include "iFuse.BufferedFS.hpp"
@@ -26,6 +27,7 @@ static struct fuse_operations irodsOper;
 
 static void usage();
 static int checkMountPoint(char *mountPoint, bool nonempty);
+static void registerClientProgram(char *prog);
 
 int main(int argc, char **argv) {
     int status;
@@ -64,7 +66,7 @@ int main(int argc, char **argv) {
 
     status = getRodsEnv(&myRodsEnv);
     if (status < 0) {
-        iFuseRodsClientLogError(LOG_ERROR, status, "main: getRodsEnv error.");
+        fprintf(stderr, "iRods Fuse abort: getRodsEnv error with status %d\n", status);
         return 1;
     }
 
@@ -91,7 +93,9 @@ int main(int argc, char **argv) {
         iFuseCmdOptsDestroy();
         return 1;
     }
-
+    
+    registerClientProgram(argv[0]);
+    
     iFuseLibSetRodsEnv(&myRodsEnv);
     iFuseLibSetOption(&myiFuseOpt);
 
@@ -118,8 +122,9 @@ int main(int argc, char **argv) {
     
     iFuseGenCmdLineForFuse(&fuse_argc, &fuse_argv);
     
-    iFuseRodsClientLog(LOG_DEBUG, "main: iRods Fuse gets started.");
+    iFuseLibLog(LOG_DEBUG, "main: iRods Fuse gets started.");
     status = fuse_main(fuse_argc, fuse_argv, &irodsOper, NULL);
+    iFuseLibLog(LOG_DEBUG, "main: iRods Fuse gets stopped.");
     iFuseReleaseCmdLineForFuse(fuse_argc, fuse_argv);
 
     // Destroy libraries
@@ -159,37 +164,41 @@ static void usage() {
 }
 
 static int checkMountPoint(char *mountPoint, bool nonempty) {
+    char *absMountPath;
     DIR *dir = NULL;
-    char cwd[MAX_NAME_LEN];
-    char mpath[MAX_NAME_LEN];
-    char mpathabs[MAX_NAME_LEN];
-
+    char *resolvedMountPath;
+    
     if(mountPoint == NULL || strlen(mountPoint) == 0) {
         fprintf(stderr, "Mount point is not given\n");
         return -1;
     }
     
-    if(getcwd(cwd, sizeof(cwd)) != NULL) {
-        if(mountPoint[0] == '/') {
-            strcpy(mpath, mountPoint);
-        } else {
-            strcpy(mpath, cwd);
-            if(mpath[strlen(mpath)-1] != '/') {
-                strcat(mpath, "/");
-            }
-            strcat(mpath, mountPoint);
-        }
+    if(mountPoint[0] == '/') {
+        // absolute mount path
+        absMountPath = strdup(mountPoint);
     } else {
-        fprintf(stderr, "Cannot get a current directory\n");
-        return -1;
+        char *cwd = getcwd(NULL, 0);
+        if(cwd != NULL) {
+            int buffsize = strlen(cwd) + 1 + strlen(mountPoint) + 1;
+            absMountPath = (char*)calloc(1, buffsize);
+            
+            strcpy(absMountPath, cwd);
+            if(absMountPath[strlen(absMountPath)-1] != '/') {
+                strcat(absMountPath, "/");
+            }
+            strcat(absMountPath, mountPoint);
+            
+            free(cwd);
+        } else {
+            fprintf(stderr, "Cannot get a current directory\n");
+            return -1;
+        }
     }
     
-    realpath(mpath, mpathabs);
-    if(mpathabs[strlen(mpathabs)-1] != '/') {
-        strcat(mpathabs, "/");
-    }
+    resolvedMountPath = realpath(absMountPath, NULL);
+    free(absMountPath);
     
-    dir = opendir(mpathabs);
+    dir = opendir(resolvedMountPath);
     if(dir != NULL) {
         // exists
         bool filefound = false;
@@ -211,18 +220,33 @@ static int checkMountPoint(char *mountPoint, bool nonempty) {
         closedir(dir);
         
         if(filefound) {
-            fprintf(stderr, "A directory %s is not empty\nif you are sure this is safe, use the 'nonempty' mount option", mpathabs);
+            fprintf(stderr, "A directory %s is not empty\nif you are sure this is safe, use the 'nonempty' mount option", resolvedMountPath);
+            free(resolvedMountPath);
             return -1;
         }
     } else if(errno == ENOENT) {
         // directory not accessible
-        fprintf(stderr, "Cannot find a directory %s\n", mpathabs);
+        fprintf(stderr, "Cannot find a directory %s\n", resolvedMountPath);
+        free(resolvedMountPath);
         return -1;
     } else {
         // not accessible
-        fprintf(stderr, "The directory %s is not accessible\n", mpathabs);
+        fprintf(stderr, "The directory %s is not accessible\n", resolvedMountPath);
+        free(resolvedMountPath);
         return -1;
     }
     
+    free(resolvedMountPath);
     return 0;
+}
+
+static void registerClientProgram(char *prog) {
+    // set SP_OPTION to argv[0] so it can be passed to server
+    char filename[MAX_NAME_LEN];
+    
+    *filename = '\0';
+    iFuseLibGetFilename(prog, filename, MAX_NAME_LEN);
+    if(strlen(filename) != 0) {
+        mySetenvStr(SP_OPTION, filename);
+    }
 }
