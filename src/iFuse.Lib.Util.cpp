@@ -11,6 +11,29 @@
 #include "iFuse.Lib.hpp"
 #include "iFuse.Lib.Util.hpp"
 
+static pthread_rwlock_t g_LogLock;
+static pthread_rwlockattr_t g_LogLockAttr;
+
+void iFuseUtilInit() {
+    pthread_rwlockattr_init(&g_LogLockAttr);
+    pthread_rwlock_init(&g_LogLock, &g_LogLockAttr);
+}
+
+void iFuseUtilDestroy() {
+    pthread_rwlock_destroy(&g_LogLock);
+    pthread_rwlockattr_destroy(&g_LogLockAttr);
+}
+
+#define TOUPPER(CH) \
+    (((CH) >= 'a' && (CH) <= 'z') ? ((CH) - 'a' + 'A') : (CH))
+
+int iFuseUtilStricmp (const char *s1, const char *s2) {
+    while (*s2 != 0 && TOUPPER (*s1) == TOUPPER (*s2)) {
+        s1++, s2++;
+    }
+    return (int) (TOUPPER (*s1) - TOUPPER (*s2));
+}
+
 time_t iFuseLibGetCurrentTime() {
     return time(NULL);
 }
@@ -19,6 +42,14 @@ void iFuseLibGetStrCurrentTime(char *buff) {
     time_t cur = iFuseLibGetCurrentTime();
     struct tm curtm;
     localtime_r(&cur, &curtm);
+    
+    asctime_r(&curtm, buff);
+    buff[strlen(buff) - 1] = 0;
+}
+
+void iFuseLibGetStrTime(time_t time, char *buff) {
+    struct tm curtm;
+    localtime_r(&time, &curtm);
     
     asctime_r(&curtm, buff);
     buff[strlen(buff) - 1] = 0;
@@ -100,4 +131,68 @@ int iFuseLibGetFilename(const char *srcPath, char *file, unsigned int maxFileLen
         return 0;
     }
     return -ENOENT;
+}
+
+void iFuseLibLogLock() {
+    pthread_rwlock_wrlock(&g_LogLock);
+}
+
+void iFuseLibLogUnlock() {
+    pthread_rwlock_unlock(&g_LogLock);
+}
+
+void iFuseLibLogToFile(int level, const char *formatStr, ...) {
+    va_list args;
+    va_start(args, formatStr);
+    
+    FILE *logFile;
+    
+    logFile = fopen(IFUSE_LIB_LOG_OUT_FILE_PATH, "a");
+    if(logFile != NULL) {
+        if(level == 7) {
+            // debug
+            fprintf(logFile, "DEBUG: ");
+        } else if(level == 3) {
+            // error
+            fprintf(logFile, "ERROR: ");
+        } else {
+            fprintf(logFile, "errorLevel : %d\n", level);
+        }
+        vfprintf(logFile, formatStr, args);
+        fprintf(logFile, "\n");
+        
+        fflush(logFile);
+        fsync(fileno(logFile));
+        fclose(logFile);
+    }
+    
+    va_end(args);
+}
+
+void iFuseLibLogErrorToFile(int level, int errCode, char *formatStr, ...) {
+    va_list args;
+    va_start(args, formatStr);
+    
+    FILE *logFile;
+    
+    logFile = fopen(IFUSE_LIB_LOG_OUT_FILE_PATH, "a");
+    if(logFile != NULL) {
+        if(level == 7) {
+            // debug
+            fprintf(logFile, "DEBUG - ERROR_CODE(%d): ", errCode);
+        } else if(level == 3) {
+            // error
+            fprintf(logFile, "ERROR - ERROR_CODE(%d): ", errCode);
+        } else {
+            fprintf(logFile, "errorLevel : %d, errorCode : %d\n", level, errCode);
+        }
+        vfprintf(logFile, formatStr, args);
+        fprintf(logFile, "\n");
+        
+        fflush(logFile);
+        fsync(fileno(logFile));
+        fclose(logFile);
+    }
+    
+    va_end(args);
 }

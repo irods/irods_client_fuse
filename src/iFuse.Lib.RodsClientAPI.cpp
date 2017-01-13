@@ -21,77 +21,92 @@ typedef struct IFuseRodsClientOperation {
     rcComm_t *conn;
 } iFuseRodsClientOperation_t;
 
-static pthread_mutex_t g_RodsClientAPILock;
-static pthread_mutexattr_t g_RodsClientAPILockAttr;
+static pthread_rwlock_t g_RodsClientAPILock;
+static pthread_rwlockattr_t g_RodsClientAPILockAttr;
 static std::list<iFuseRodsClientOperation_t*> g_Operations;
-static pthread_t g_TimeoutChecker;
-static bool g_TimeoutCheckerRunning;
 
 static int g_RodsapiTimeoutSec = IFUSE_RODSCLIENTAPI_TIMEOUT_SEC;
+static time_t g_LastRodsapiTimeoutCheck = 0;
 
-static void* _timeoutChecker(void* param) {
+static void _timeoutChecker() {
     std::list<iFuseRodsClientOperation_t*>::iterator it_oper;
     std::list<iFuseRodsClientOperation_t*> removeList;
     iFuseRodsClientOperation_t *oper;
     time_t currentTime;
     
-    UNUSED(param);
+    bool hasTimeout = false;
     
-    iFuseRodsClientLog(LOG_DEBUG, "_timeoutChecker: timeout checker is running");
+    //iFuseLibLog(LOG_DEBUG, "_timeoutChecker is called");
     
-    while(g_TimeoutCheckerRunning) {
-        pthread_mutex_lock(&g_RodsClientAPILock);
-        
-        currentTime = iFuseLibGetCurrentTime();
+    currentTime = iFuseLibGetCurrentTime();
+    
+    if(iFuseLibDiffTimeSec(currentTime, g_LastRodsapiTimeoutCheck) > g_RodsapiTimeoutSec / 2) {
+        //iFuseLibLog(LOG_DEBUG, "_timeoutChecker: checking timedout rodsAPI calls");
+        pthread_rwlock_rdlock(&g_RodsClientAPILock);
         
         // iterate operation list to check timedout
         for(it_oper=g_Operations.begin();it_oper!=g_Operations.end();it_oper++) {
             oper = *it_oper;
             
             if(iFuseLibDiffTimeSec(currentTime, oper->start) >= g_RodsapiTimeoutSec) {
-                removeList.push_back(oper);
+                hasTimeout = true;
+                break;
             }
         }
         
-        // iterate remove list
-        while(!removeList.empty()) {
-            oper = removeList.front();
-            removeList.pop_front();
-            g_Operations.remove(oper);
-
-            if(oper->conn != NULL) {
-                socklen_t len;
-                struct sockaddr_storage addr;
-                char ipstr[INET6_ADDRSTRLEN];
-                int port;
-                len = sizeof addr;
-
-                getsockname(oper->conn->sock, (struct sockaddr*)&addr, &len);
-
-                // deal with both IPv4 and IPv6:
-                if (addr.ss_family == AF_INET) {
-                    struct sockaddr_in *s = (struct sockaddr_in *)&addr;
-                    port = ntohs(s->sin_port);
-                    inet_ntop(AF_INET, &s->sin_addr, ipstr, sizeof ipstr);
-                } else { // AF_INET6
-                    struct sockaddr_in6 *s = (struct sockaddr_in6 *)&addr;
-                    port = ntohs(s->sin6_port);
-                    inet_ntop(AF_INET6, &s->sin6_addr, ipstr, sizeof ipstr);
+        pthread_rwlock_unlock(&g_RodsClientAPILock);
+        
+        if(hasTimeout) {
+            pthread_rwlock_wrlock(&g_RodsClientAPILock);
+            
+            // iterate operation list to check timedout
+            for(it_oper=g_Operations.begin();it_oper!=g_Operations.end();it_oper++) {
+                oper = *it_oper;
+                
+                if(iFuseLibDiffTimeSec(currentTime, oper->start) >= g_RodsapiTimeoutSec) {
+                    iFuseLibLog(LOG_DEBUG, "_timeoutChecker: detected timed-out operation\n");
+                    removeList.push_back(oper);
                 }
-
-                iFuseRodsClientLog(LOG_DEBUG, "_timeoutChecker: kill connection (Local IP address): %s:%d\n", ipstr, port);
-
-                // kill the connection
-                shutdown(oper->conn->sock, 2);
             }
+            
+            // iterate remove list
+            while(!removeList.empty()) {
+                oper = removeList.front();
+                removeList.pop_front();
+                g_Operations.remove(oper);
+
+                if(oper->conn != NULL) {
+                    socklen_t len;
+                    struct sockaddr_storage addr;
+                    char ipstr[INET6_ADDRSTRLEN];
+                    int port;
+                    len = sizeof addr;
+
+                    getsockname(oper->conn->sock, (struct sockaddr*)&addr, &len);
+
+                    // deal with both IPv4 and IPv6:
+                    if (addr.ss_family == AF_INET) {
+                        struct sockaddr_in *s = (struct sockaddr_in *)&addr;
+                        port = ntohs(s->sin_port);
+                        inet_ntop(AF_INET, &s->sin_addr, ipstr, sizeof ipstr);
+                    } else { // AF_INET6
+                        struct sockaddr_in6 *s = (struct sockaddr_in6 *)&addr;
+                        port = ntohs(s->sin6_port);
+                        inet_ntop(AF_INET6, &s->sin6_addr, ipstr, sizeof ipstr);
+                    }
+
+                    iFuseLibLog(LOG_DEBUG, "_timeoutChecker: kill connection (Local IP address): %s:%d\n", ipstr, port);
+
+                    // kill the connection
+                    shutdown(oper->conn->sock, 2);
+                }
+            }
+            
+            pthread_rwlock_unlock(&g_RodsClientAPILock);
         }
         
-        pthread_mutex_unlock(&g_RodsClientAPILock);
-        
-        sleep(1);
+        g_LastRodsapiTimeoutCheck = iFuseLibGetCurrentTime();
     }
-    
-    return NULL;
 }
 
 static iFuseRodsClientOperation_t *_startOperationTimeout(rcComm_t *conn) {
@@ -103,17 +118,17 @@ static iFuseRodsClientOperation_t *_startOperationTimeout(rcComm_t *conn) {
     oper->start = iFuseLibGetCurrentTime();
     oper->conn = conn;
     
-    pthread_mutex_lock(&g_RodsClientAPILock);
+    pthread_rwlock_wrlock(&g_RodsClientAPILock);
     g_Operations.push_back(oper);
-    pthread_mutex_unlock(&g_RodsClientAPILock);
+    pthread_rwlock_unlock(&g_RodsClientAPILock);
     
     return oper;
 }
 
 static void _endOperationTimeout(iFuseRodsClientOperation_t *oper) {
-    pthread_mutex_lock(&g_RodsClientAPILock);
+    pthread_rwlock_wrlock(&g_RodsClientAPILock);
     g_Operations.remove(oper);
-    pthread_mutex_unlock(&g_RodsClientAPILock);
+    pthread_rwlock_unlock(&g_RodsClientAPILock);
     
     free(oper);
 }
@@ -127,25 +142,20 @@ void iFuseRodsClientInit() {
         g_RodsapiTimeoutSec = iFuseLibGetOption()->rodsapiTimeoutSec;
     }
    
-    pthread_mutexattr_init(&g_RodsClientAPILockAttr);
-    pthread_mutexattr_settype(&g_RodsClientAPILockAttr, PTHREAD_MUTEX_RECURSIVE);
-    pthread_mutex_init(&g_RodsClientAPILock, &g_RodsClientAPILockAttr);
+    pthread_rwlockattr_init(&g_RodsClientAPILockAttr);
+    pthread_rwlock_init(&g_RodsClientAPILock, &g_RodsClientAPILockAttr);
     
-    g_TimeoutCheckerRunning = true;
-    
-    pthread_create(&g_TimeoutChecker, NULL, _timeoutChecker, NULL);
+    iFuseLibSetTimerTickHandler(_timeoutChecker);
 }
 
 /*
  * Destroy iFuse Rods Client
  */
 void iFuseRodsClientDestroy() {
-    g_TimeoutCheckerRunning = false;
+    iFuseLibUnsetTimerTickHandler(_timeoutChecker);
     
-    pthread_join(g_TimeoutChecker, NULL);
-    
-    pthread_mutex_destroy(&g_RodsClientAPILock);
-    pthread_mutexattr_destroy(&g_RodsClientAPILockAttr);
+    pthread_rwlock_destroy(&g_RodsClientAPILock);
+    pthread_rwlockattr_destroy(&g_RodsClientAPILockAttr);
 }
 
 int iFuseRodsClientReadMsgError(int status) {
@@ -185,7 +195,7 @@ rcComm_t *iFuseRodsClientConnect(const char *rodsHost, int rodsPort, const char 
             inet_ntop(AF_INET6, &s->sin6_addr, ipstr, sizeof ipstr);
         }
 
-        iFuseRodsClientLog(LOG_DEBUG, "iFuseRodsClientConnect: Local IP address: %s:%d\n", ipstr, port);
+        iFuseLibLog(LOG_DEBUG, "iFuseRodsClientConnect: Local IP address: %s:%d\n", ipstr, port);
     }
 
     return conn;
@@ -409,50 +419,4 @@ int iFuseRodsClientModDataObjMeta(rcComm_t *conn, modDataObjMeta_t *modDataObjMe
     status = rcModDataObjMeta(conn, modDataObjMetaInp);
     _endOperationTimeout(oper);
     return status;
-}
-
-void iFuseRodsClientLogToFile(int level, const char *formatStr, ...) {
-    va_list args;
-    va_start(args, formatStr);
-    
-    FILE *logFile;
-    
-    logFile = fopen(IFUSE_RODSCLIENTAPI_LOG_OUT_FILE_PATH, "a");
-    if(logFile != NULL) {
-        if(level == 7) {
-            // debug
-            fprintf(logFile, "DEBUG: ");
-        } else {
-            fprintf(logFile, "errorLevel : %d\n", level);
-        }
-        vfprintf(logFile, formatStr, args);
-        fprintf(logFile, "\n");
-        
-        fclose(logFile);
-    }
-    
-    va_end(args);
-}
-
-void iFuseRodsClientLogErrorToFile(int level, int errCode, char *formatStr, ...) {
-    va_list args;
-    va_start(args, formatStr);
-    
-    FILE *logFile;
-    
-    logFile = fopen(IFUSE_RODSCLIENTAPI_LOG_OUT_FILE_PATH, "a");
-    if(logFile != NULL) {
-        if(level == 7) {
-            // debug
-            fprintf(logFile, "DEBUG - ERROR_CODE(%d): ", errCode);
-        } else {
-            fprintf(logFile, "errorLevel : %d, errorCode : %d\n", level, errCode);
-        }
-        vfprintf(logFile, formatStr, args);
-        fprintf(logFile, "\n");
-        
-        fclose(logFile);
-    }
-    
-    va_end(args);
 }

@@ -76,9 +76,13 @@ Use irodsFsCtl for control
 
 1) Clear all metadata cache:
 ```
-irodsFsCtl.py yourMountPoint reset_cache
+irodsFsCtl.py reset_cache yourMountPoint
 ```
 
+2) Show established connections:
+```
+irodsFsCtl.py show_connections yourMountPoint
+```
 
 Helpful options
 ---------------
