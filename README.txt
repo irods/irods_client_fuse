@@ -1,12 +1,13 @@
-DIRECTORY
-iRODS/clients/fuse	- iRODS/fuse implementation
+iRODS FUSE client
+=================
 
-DESCRIPTION
-	This directory, and its subdirectories, contain modules for
-	building the irodsFs binary which can be used to mount an
-	iRODS collection to a local directory. Then the files and
-        sub-collections in this mounted iRODS collection can be
-	accessed using regular UNIX commands through this local directory.
+Description
+-----------
+
+This repository builds the irodsFs binary which can be used to
+mount an iRODS collection to a local directory. Then the files and
+sub-collections in the mounted iRODS collection can be accessed
+using regular UNIX commands through the local directory.
 
 FUSE (Filesystem in Userspace) is a free Unix kernel module that allows 
 non-privileged users to create their own file systems without editing 
@@ -25,51 +26,65 @@ iRODS. The user will need to set the appropriate UNIX permission (mode) of
 the UNIX mount directory to control access to the mounted data.
 
 
-Building irods FUSE:
+Prerequisites for building iRODS FUSE:
+--------------------------------------
+
+ - `irods-dev` package from https://packages.irods.org
+
+This will install the necessary buildchain (including CMake) into /opt/irods-externals.
+
+Make sure that the iRODS CMake is in your PATH:
+
+```
+export PATH=/opt/irods-externals/cmake3.5.2-0/bin:$PATH
+```
+
+Building iRODS FUSE:
 --------------------
 
-Type in:
+```
+git clone https://github.com/irods/irods_client_fuse
+cd irods_client_fuse
+cmake ../
+```
 
-cd clients/fuse
-gmake
-
-Running irods Fuse:
+Running iRODS FUSE:
 -------------------
 
-1) cd clients/fuse/bin
+Make sure the iCommands are already capable of logging in:
 
-2) make a local directory for mounting. e.g.,
+```
+iinit
+```
 
-    mkdir /usr/tmp/fmount
+Mount the home collection to a local directory:
 
-3) Setup the iRODS client env (~/irods/irods_environment.json) so that iCommands
-will work. Type in:
-    iinit
-
-and do the normal login.
-
-4) Mount the home collection to the local directory by typing in:
-./irodsFs /usr/tmp/fmount
+```
+mkdir /usr/tmp/fmount
+irodsFs /usr/tmp/fmount
+```
 
 The user's home collection is now mounted. The iRODS files and sub-collections 
 in the user's home collection should be accessible with normal UNIX commands 
 through the /usr/tmp/fmount directory. 
+
 
 Run irodsFs in debug mode
 -------------------------
 
 To run irodsFs in debug mode:
 
-1) set the env variable irodsLogLevel to 4, e.g. in csh:
+1) set the env variable irodsLogLevel to 4:
 
-setenv irodsLogLevel 4
+```
+export irodsLogLevel=4
+```
 
 2) run irodsFs in debug mode, e.g.
 
+```
 irodsFs -d yourMountPoint
-
-It should print out a lot of debugging info.
-
+```
 
 Use irodsFsCtl for control
 --------------------------
@@ -131,7 +146,7 @@ irodsFs -oconnreuse -opreloadblocks 5 -ometadatacachetimeout 3600 yourMountPoint
 WARNING
 -------
 
-1) When a collection is mounted using irodsFs, uses of iCommands
+When a collection is mounted using irodsFs, uses of iCommands
 such as iput, irm, icp, etc that change the content of the collection should be 
 avoided because the FUSE implementation caches the attributes of the contents of
 the collection.
