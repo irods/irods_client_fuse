@@ -29,9 +29,24 @@ the UNIX mount directory to control access to the mounted data.
 Prerequisites for building iRODS FUSE:
 --------------------------------------
 
- - `irods-dev` package from https://packages.irods.org
+You will need to install a few packages from https://packages.irods.org:
 
-This will install the necessary buildchain (including CMake) into /opt/irods-externals.
+```
+sudo apt-get install irods-dev
+sudo apt-get install irods-runtime
+sudo apt-get install irods-externals-clang3.8-0
+sudo apt-get install irods-externals-cppzmq4.1-0
+sudo apt-get install irods-externals-cmake3.5.2-0
+```
+
+This will install the necessary buildchain into `/opt/irods-externals`.
+
+You will also need a couple additional packages:
+
+```
+sudo apt-get install pkg-config
+sudo apt-get install libfuse-dev
+```
 
 Make sure that the iRODS CMake is in your PATH:
 
@@ -42,16 +57,25 @@ export PATH=/opt/irods-externals/cmake3.5.2-0/bin:$PATH
 Building iRODS FUSE:
 --------------------
 
+If `/usr/lib/x86_64-linux-gnu/libstdc++.so` does not exist, you may need to create a symlink: 
+
+```
+sudo ln -s /usr/lib/x86_64-linux-gnu/libstdc++.so.6 /usr/lib/x86_64-linux-gnu/libstdc++.so
+```
+
 ```
 git clone https://github.com/irods/irods_client_fuse
 cd irods_client_fuse
+mkdir build
+cd build
 cmake ../
+make
 ```
 
 Running iRODS FUSE:
 -------------------
 
-Make sure the iCommands are already capable of logging in:
+Make sure the iCommands are already capable of logging into your Zone:
 
 ```
 iinit
