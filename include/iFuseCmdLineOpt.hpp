@@ -7,6 +7,9 @@
 
 #include "iFuse.Lib.hpp"
 
+// for Postgresql-iCAT only
+//#define USE_CONNREUSE
+
 void iFuseCmdOptsInit();
 void iFuseCmdOptsDestroy();
 void iFuseCmdOptsParse(int argc, char **argv);

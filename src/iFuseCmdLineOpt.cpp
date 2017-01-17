@@ -40,7 +40,11 @@ void iFuseCmdOptsInit() {
     g_Opt.cacheMetadata = true;
     g_Opt.maxConn = IFUSE_MAX_NUM_CONN;
     g_Opt.blocksize = IFUSE_BUFFER_CACHE_BLOCK_SIZE;
+#ifdef USE_CONNREUSE
+    g_Opt.connReuse = true;
+#else
     g_Opt.connReuse = false;
+#endif
     g_Opt.connTimeoutSec = IFUSE_FREE_CONN_TIMEOUT_SEC;
     g_Opt.connKeepAliveSec = IFUSE_FREE_CONN_KEEPALIVE_SEC;
     g_Opt.connCheckIntervalSec = IFUSE_FREE_CONN_CHECK_INTERVAL_SEC;
@@ -79,6 +83,11 @@ void iFuseCmdOptsInit() {
     value = getenv("IRODSFS_CONNREUSE"); // true/false
     if(_atob(value)) {
         g_Opt.connReuse = true;
+    }
+    
+    value = getenv("IRODSFS_NOCONNREUSE"); // true/false
+    if(_atob(value)) {
+        g_Opt.connReuse = false;
     }
     
     value = getenv("IRODSFS_CONNTIMEOUT"); // number
@@ -186,6 +195,9 @@ void iFuseCmdOptsParse(int argc, char **argv) {
             argv[i] = "-Z";
         } else if(strcmp("-oconnreuse", argv[i]) == 0) {
             g_Opt.connReuse = true;
+            argv[i] = "-Z";
+        } else if(strcmp("-onoconnreuse", argv[i]) == 0) {
+            g_Opt.connReuse = false;
             argv[i] = "-Z";
         } else if(strcmp("-oconntimeout", argv[i]) == 0) {
             if(argc > i+1) {
