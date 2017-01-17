@@ -1433,7 +1433,7 @@ int iFuseFsIoctl(const char *iRodsPath, int cmd, void *arg, struct fuse_file_inf
     UNUSED(fi);
     UNUSED(flags);
     
-    switch (cmd) {
+    switch ((unsigned int)cmd) {
     	case IFUSEIOC_RESET_METADATA_CACHE:
             {
                 // clear cache
