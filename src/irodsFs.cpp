@@ -94,6 +94,13 @@ int main(int argc, char **argv) {
         return 1;
     }
     
+    if (myiFuseOpt.workdir != NULL) {
+        if(strlen(myiFuseOpt.workdir) < MAX_NAME_LEN) {
+            bzero(myRodsEnv.rodsCwd, MAX_NAME_LEN);
+            strcpy(myRodsEnv.rodsCwd, myiFuseOpt.workdir);
+        }
+    }
+    
     registerClientProgram(argv[0]);
     
     iFuseLibSetRodsEnv(&myRodsEnv);

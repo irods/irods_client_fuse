@@ -15,6 +15,7 @@
 #include "iFuse.Lib.Util.hpp"
 #include "sockComm.h"
 #include "miscUtil.h"
+#include "ticketAdmin.h"
 
 typedef struct IFuseRodsClientOperation {
     time_t start;
@@ -220,6 +221,19 @@ int iFuseRodsClientDisconnect(rcComm_t *conn) {
 
 int iFuseRodsClientMakeRodsPath(const char *path, char *iRodsPath) {
     return parseRodsPathStr((char *) (path + 1), iFuseLibGetRodsEnv(), iRodsPath);
+}
+
+int iFuseRodsClientSetSessionTicket(rcComm_t *conn, ticketAdminInp_t *ticketAdminInp) {
+    iFuseRodsClientOperation_t *oper = _startOperationTimeout(conn);
+    int status;
+    
+    if(oper == NULL) {
+        return SYS_MALLOC_ERR;
+    }
+
+    status = rcTicketAdmin(conn, ticketAdminInp);
+    _endOperationTimeout(oper);
+    return status;
 }
 
 int iFuseRodsClientDataObjOpen(rcComm_t *conn, dataObjInp_t *dataObjInp) {

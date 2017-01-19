@@ -57,6 +57,7 @@ static unsigned long _genNextConnID() {
 static int _connect(iFuseConn_t *iFuseConn) {
     int status = 0;
     rodsEnv *myRodsEnv = iFuseLibGetRodsEnv();
+    
     int reconnFlag = NO_RECONN;
 
     assert(myRodsEnv != NULL);
@@ -93,6 +94,31 @@ static int _connect(iFuseConn_t *iFuseConn) {
             // failed
             iFuseLibLog(LOG_ERROR, "iFuseRodsClientLogin failure, status = %d", status);
             iFuseLibLog(LOG_ERROR, "Cannot log in to iRODS - account %s", myRodsEnv->rodsUserName);
+            return status;
+        }
+        
+        if(iFuseLibGetOption()->ticket != NULL) {
+            char* ticket = iFuseLibGetOption()->ticket;
+            ticketAdminInp_t ticketAdminInp;
+            
+            bzero(&ticketAdminInp, sizeof ( ticketAdminInp_t));
+            ticketAdminInp.arg1 = "session";
+            ticketAdminInp.arg2 = ticket;
+            ticketAdminInp.arg3 = "";
+            ticketAdminInp.arg4 = "";
+            ticketAdminInp.arg5 = "";
+            ticketAdminInp.arg6 = "";
+            
+            status = iFuseRodsClientSetSessionTicket(iFuseConn->conn, &ticketAdminInp);
+            if (status != 0) {
+                iFuseRodsClientDisconnect(iFuseConn->conn);
+                iFuseConn->conn = NULL;
+
+                // failed
+                iFuseLibLog(LOG_ERROR, "iFuseRodsClientSetSessionTicket failure, status = %d", status);
+                iFuseLibLog(LOG_ERROR, "Cannot set session-ticket - ticket %s", ticket);
+                return status;
+            }
         }
     }
 
