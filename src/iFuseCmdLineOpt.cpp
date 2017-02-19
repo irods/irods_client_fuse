@@ -159,7 +159,7 @@ void iFuseCmdOptsDestroy() {
     g_Opt.extendedOpts = NULL;
 }
 
-iFuseExtendedOpt_t *_newExtendedOpt(char *opt) {
+static iFuseExtendedOpt_t *_newExtendedOpt(char *opt) {
     iFuseExtendedOpt_t *eopt = NULL;
     eopt = (iFuseExtendedOpt_t *)calloc(1, sizeof(iFuseExtendedOpt_t));
     if(eopt != NULL) {
@@ -168,83 +168,148 @@ iFuseExtendedOpt_t *_newExtendedOpt(char *opt) {
     return eopt;
 }
 
+static int _parseFuseCommandArg(char **argv, int argc, int index, iFuseCmdArg_t *option) {
+    // handle -- or -oxxx or -o xxx
+    int tokens = 0;
+    int i;
+    
+    bzero(option, sizeof(iFuseCmdArg_t));
+    for(i=index;i<argc;i++) {
+        if(strcmp(argv[i], "-o") == 0) {
+            if(tokens > 0) {
+                // already processed a command
+                break;
+            }
+            // following is a command
+            option->start = i;
+            option->end = i + 1;
+            tokens++;
+            i++;
+            if(i < argc) {
+                strncpy(option->command, argv[i], IFUSE_CMD_ARG_MAX_TOKEN_LEN);
+                option->end = i + 1;
+                tokens++;
+            }
+        } else if(strncmp(argv[i], "--", 2) == 0 || strncmp(argv[i], "-o", 2) == 0) {
+            if(tokens > 0) {
+                // already processed a command
+                break;
+            }
+            option->start = i;
+            strncpy(option->command, argv[i] + 2, IFUSE_CMD_ARG_MAX_TOKEN_LEN);
+            option->end = i + 1;
+            tokens++;
+        } else {
+            // value
+            if(tokens == 0) {
+                // if there's no command found
+                continue;
+            }
+            strncpy(option->value, argv[i], IFUSE_CMD_ARG_MAX_TOKEN_LEN);
+            option->end = i + 1;
+            tokens++;
+        }
+    }
+    return tokens;
+}
+
 void iFuseCmdOptsParse(int argc, char **argv) {
     int c;
     char buff[MAX_NAME_LEN];
     int index;
     int i;
+    int j;
 
     g_Opt.program = strdup(argv[0]);
 
-    for(i=0;i<argc;i++) {
-        if(strcmp("--version", argv[i]) == 0) {
-            g_Opt.version = true;
-            argv[i] = "-Z";
-        } else if(strcmp("-onocache", argv[i]) == 0) {
-            g_Opt.bufferedFS = false;
-            g_Opt.preload = false;
-            g_Opt.cacheMetadata = false;
-            argv[i] = "-Z";
-        } else if(strcmp("-onopreload", argv[i]) == 0) {
-            g_Opt.preload = false;
-            argv[i] = "-Z";
-        } else if(strcmp("-onocachemetadata", argv[i]) == 0) {
-            g_Opt.cacheMetadata = false;
-            argv[i] = "-Z";
-        } else if(strcmp("-omaxconn", argv[i]) == 0) {
-            if(argc > i+1) {
-                g_Opt.maxConn = atoi(argv[i+1]);
-                argv[i+1] = "-Z";
+    i = 0;
+    while(i<argc) {
+        iFuseCmdArg_t cmd;
+
+        int tokens = _parseFuseCommandArg(argv, argc - 1, i, &cmd); // except mount-point path
+        if(tokens > 0) {
+            bool processed = false;
+
+            if(strcmp(cmd.command, "version") == 0) {
+                g_Opt.version = true;
+                processed = true;
+            } else if(strcmp(cmd.command, "nocache") == 0) {
+                g_Opt.bufferedFS = false;
+                g_Opt.preload = false;
+                g_Opt.cacheMetadata = false;
+                processed = true;
+            } else if(strcmp(cmd.command, "nopreload") == 0) {
+                g_Opt.preload = false;
+                processed = true;
+            } else if(strcmp(cmd.command, "nocachemetadata") == 0) {
+                g_Opt.cacheMetadata = false;
+                processed = true;
+            } else if(strcmp(cmd.command, "maxconn") == 0) {
+                if(strlen(cmd.value) > 0) {
+                    g_Opt.maxConn = atoi(cmd.value);
+                }
+                processed = true;
+            } else if(strcmp(cmd.command, "blocksize") == 0) {
+                if(strlen(cmd.value) > 0) {
+                    g_Opt.blocksize = atoi(cmd.value);
+                }
+                processed = true;
+            } else if(strcmp(cmd.command, "connreuse") == 0) {
+                g_Opt.connReuse = true;
+                processed = true;
+            } else if(strcmp(cmd.command, "noconnreuse") == 0) {
+                g_Opt.connReuse = false;
+                processed = true;
+            } else if(strcmp(cmd.command, "conntimeout") == 0) {
+                if(strlen(cmd.value) > 0) {
+                    g_Opt.connTimeoutSec = atoi(cmd.value);
+                }
+                processed = true;
+            } else if(strcmp(cmd.command, "connkeepalive") == 0) {
+                if(strlen(cmd.value) > 0) {
+                    g_Opt.connKeepAliveSec = atoi(cmd.value);
+                }
+                processed = true;
+            } else if(strcmp(cmd.command, "conncheckinterval") == 0) {
+                if(strlen(cmd.value) > 0) {
+                    g_Opt.connCheckIntervalSec = atoi(cmd.value);
+                }
+                processed = true;
+            } else if(strcmp(cmd.command, "apitimeout") == 0) {
+                if(strlen(cmd.value) > 0) {
+                    g_Opt.rodsapiTimeoutSec = atoi(cmd.value);
+                }
+                processed = true;
+            } else if(strcmp(cmd.command, "preloadblocks") == 0) {
+                if(strlen(cmd.value) > 0) {
+                    g_Opt.preloadNumBlocks = atoi(cmd.value);
+                }
+                processed = true;
+            } else if(strcmp(cmd.command, "metadatacachetimeout") == 0) {
+                if(strlen(cmd.value) > 0) {
+                    g_Opt.metadataCacheTimeoutSec = atoi(cmd.value);
+                }
+                processed = true;
+            } else if(strcmp(cmd.command, "ticket") == 0) {
+                if(strlen(cmd.value) > 0) {
+                    g_Opt.ticket = strdup(cmd.value);
+                }
+                processed = true;
+            } else if(strcmp(cmd.command, "workdir") == 0) {
+                if(strlen(cmd.value) > 0) {
+                    g_Opt.workdir = strdup(cmd.value);
+                }
+                processed = true;
             }
-            argv[i] = "-Z";
-        } else if(strcmp("-oblocksize", argv[i]) == 0) {
-            if(argc > i+1) {
-                g_Opt.blocksize = atoi(argv[i+1]);
-                argv[i+1] = "-Z";
+
+            if(processed) {
+                for(j=cmd.start;j<cmd.end;j++) {
+                    argv[j] = "-Z";
+                }
             }
-            argv[i] = "-Z";
-        } else if(strcmp("-oconnreuse", argv[i]) == 0) {
-            g_Opt.connReuse = true;
-            argv[i] = "-Z";
-        } else if(strcmp("-onoconnreuse", argv[i]) == 0) {
-            g_Opt.connReuse = false;
-            argv[i] = "-Z";
-        } else if(strcmp("-oconntimeout", argv[i]) == 0) {
-            if(argc > i+1) {
-                g_Opt.connTimeoutSec = atoi(argv[i+1]);
-                argv[i+1] = "-Z";
-            }
-            argv[i] = "-Z";
-        } else if(strcmp("-oconnkeepalive", argv[i]) == 0) {
-            if(argc > i+1) {
-                g_Opt.connKeepAliveSec = atoi(argv[i+1]);
-                argv[i+1] = "-Z";
-            }
-            argv[i] = "-Z";
-        } else if(strcmp("-oconncheckinterval", argv[i]) == 0) {
-            if(argc > i+1) {
-                g_Opt.connCheckIntervalSec = atoi(argv[i+1]);
-                argv[i+1] = "-Z";
-            }
-            argv[i] = "-Z";
-        } else if(strcmp("-oapitimeout", argv[i]) == 0) {
-            if(argc > i+1) {
-                g_Opt.rodsapiTimeoutSec = atoi(argv[i+1]);
-                argv[i+1] = "-Z";
-            }
-            argv[i] = "-Z";
-        } else if(strcmp("-opreloadblocks", argv[i]) == 0) {
-            if(argc > i+1) {
-                g_Opt.preloadNumBlocks = atoi(argv[i+1]);
-                argv[i+1] = "-Z";
-            }
-            argv[i] = "-Z";
-        } else if(strcmp("-ometadatacachetimeout", argv[i]) == 0) {
-            if(argc > i+1) {
-                g_Opt.metadataCacheTimeoutSec = atoi(argv[i+1]);
-                argv[i+1] = "-Z";
-            }
-            argv[i] = "-Z";
+            i += tokens;
+        } else {
+            break;
         }
     }
 
@@ -278,11 +343,10 @@ void iFuseCmdOptsParse(int argc, char **argv) {
             case 'o':
                 {
                     // fuse options
-                    if (!strcmp("use_ino", optarg)) {
+                    if (strcmp("use_ino", optarg) == 0) {
                         fprintf(stderr, "use_ino fuse option not supported, ignoring\n");
                         break;
-                    }
-                    if (!strcmp("nonempty", optarg)) {
+                    } else if (strcmp("nonempty", optarg) == 0) {
                         // fuse nonempty option
                         g_Opt.nonempty = true;
                         break;
