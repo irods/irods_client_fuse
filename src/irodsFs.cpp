@@ -19,7 +19,7 @@
 #include "iFuse.Lib.Conn.hpp"
 #include "iFuse.Lib.Fd.hpp"
 #include "iFuse.Lib.Util.hpp"
-#include "iFuse.Lib.RodsClientAPI.hpp" 
+#include "iFuse.Lib.RodsClientAPI.hpp"
 #include "iFuseOper.hpp"
 #include "iFuseCmdLineOpt.hpp"
 #include "iFuseVersion.hpp"
@@ -77,7 +77,7 @@ int main(int argc, char **argv) {
     iFuseCmdOptsAdd("-odirect_io");
 
     iFuseGetOption(&myiFuseOpt);
-    
+
     if (myiFuseOpt.help) {
         usage();
         return 0;
@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
         printf("iRODS FUSE CLIENT VERSION: %s\n", IFUSE_VERSION);
         return 0;
     }
-    
+
     // check mount point
     status = checkMountPoint(myiFuseOpt.mountpoint, myiFuseOpt.nonempty);
     if(status != 0) {
@@ -95,16 +95,16 @@ int main(int argc, char **argv) {
         iFuseCmdOptsDestroy();
         return 1;
     }
-    
+
     if (myiFuseOpt.workdir != NULL) {
         if(strlen(myiFuseOpt.workdir) < MAX_NAME_LEN) {
             bzero(myRodsEnv.rodsCwd, MAX_NAME_LEN);
             strcpy(myRodsEnv.rodsCwd, myiFuseOpt.workdir);
         }
     }
-    
+
     registerClientProgram(argv[0]);
-    
+
     iFuseLibSetRodsEnv(&myRodsEnv);
     iFuseLibSetOption(&myiFuseOpt);
 
@@ -118,19 +118,19 @@ int main(int argc, char **argv) {
     status = iFuseConnTest();
     if(status != 0) {
         fprintf(stderr, "iRods Fuse abort: cannot connect to iCAT\n");
-        
+
         // Destroy libraries
         iFusePreloadDestroy();
         iFuseBufferedFSDestroy();
         iFuseFsDestroy();
         iFuseLibDestroy();
-        
+
         iFuseCmdOptsDestroy();
         return 1;
     }
-    
+
     iFuseGenCmdLineForFuse(&fuse_argc, &fuse_argv);
-    
+
     iFuseLibLog(LOG_DEBUG, "main: iRods Fuse gets started.");
     status = fuse_main(fuse_argc, fuse_argv, &irodsOper, NULL);
     iFuseLibLog(LOG_DEBUG, "main: iRods Fuse gets stopped.");
@@ -188,12 +188,12 @@ static int checkMountPoint(char *mountPoint, bool nonempty) {
     char *absMountPath;
     DIR *dir = NULL;
     char *resolvedMountPath;
-    
+
     if(mountPoint == NULL || strlen(mountPoint) == 0) {
         fprintf(stderr, "Mount point is not given\n");
         return -1;
     }
-    
+
     if(mountPoint[0] == '/') {
         // absolute mount path
         absMountPath = strdup(mountPoint);
@@ -202,20 +202,20 @@ static int checkMountPoint(char *mountPoint, bool nonempty) {
         if(cwd != NULL) {
             int buffsize = strlen(cwd) + 1 + strlen(mountPoint) + 1;
             absMountPath = (char*)calloc(1, buffsize);
-            
+
             strcpy(absMountPath, cwd);
             if(absMountPath[strlen(absMountPath)-1] != '/') {
                 strcat(absMountPath, "/");
             }
             strcat(absMountPath, mountPoint);
-            
+
             free(cwd);
         } else {
             fprintf(stderr, "Cannot get a current directory\n");
             return -1;
         }
     }
-    
+
     resolvedMountPath = realpath(absMountPath, NULL);
     if(resolvedMountPath == NULL) {
         // if the given directory not exists or other errors
@@ -233,7 +233,7 @@ static int checkMountPoint(char *mountPoint, bool nonempty) {
     }
 
     free(absMountPath);
-    
+
     dir = opendir(resolvedMountPath);
     if(dir != NULL) {
         // exists
@@ -252,9 +252,9 @@ static int checkMountPoint(char *mountPoint, bool nonempty) {
                 }
             }
         }
-        
+
         closedir(dir);
-        
+
         if(filefound) {
             fprintf(stderr, "A directory %s is not empty\nif you are sure this is safe, use the 'nonempty' mount option", resolvedMountPath);
             free(resolvedMountPath);
@@ -271,7 +271,7 @@ static int checkMountPoint(char *mountPoint, bool nonempty) {
         free(resolvedMountPath);
         return -1;
     }
-    
+
     free(resolvedMountPath);
     return 0;
 }
@@ -279,7 +279,7 @@ static int checkMountPoint(char *mountPoint, bool nonempty) {
 static void registerClientProgram(char *prog) {
     // set SP_OPTION to argv[0] so it can be passed to server
     char filename[MAX_NAME_LEN];
-    
+
     *filename = '\0';
     iFuseLibGetFilename(prog, filename, MAX_NAME_LEN);
     if(strlen(filename) != 0) {
