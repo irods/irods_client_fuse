@@ -199,6 +199,15 @@ static int _parseFuseCommandArg(char **argv, int argc, int index, iFuseCmdArg_t 
             strncpy(option->command, argv[i] + 2, IFUSE_CMD_ARG_MAX_TOKEN_LEN);
             option->end = i + 1;
             tokens++;
+        } else if(strncmp(argv[i], "-", 1) == 0) {
+            if(tokens > 0) {
+                // already processed a command
+                break;
+            }
+            option->start = i;
+            strncpy(option->command, argv[i] + 1, IFUSE_CMD_ARG_MAX_TOKEN_LEN);
+            option->end = i + 1;
+            tokens++;
         } else {
             // value
             if(tokens == 0) {
@@ -208,6 +217,7 @@ static int _parseFuseCommandArg(char **argv, int argc, int index, iFuseCmdArg_t 
             strncpy(option->value, argv[i], IFUSE_CMD_ARG_MAX_TOKEN_LEN);
             option->end = i + 1;
             tokens++;
+            break;
         }
     }
     return tokens;
@@ -226,7 +236,7 @@ void iFuseCmdOptsParse(int argc, char **argv) {
     while(i<argc) {
         iFuseCmdArg_t cmd;
 
-        int tokens = _parseFuseCommandArg(argv, argc - 1, i, &cmd); // except mount-point path
+        int tokens = _parseFuseCommandArg(argv, argc, i, &cmd); // except mount-point path
         if(tokens > 0) {
             bool processed = false;
 
