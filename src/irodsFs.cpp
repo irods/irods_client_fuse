@@ -203,6 +203,21 @@ static int checkMountPoint(char *mountPoint, bool nonempty) {
     }
     
     resolvedMountPath = realpath(absMountPath, NULL);
+    if(resolvedMountPath == NULL) {
+        // if the given directory not exists or other errors
+        if(errno == ENOENT) {
+            // directory not accessible
+            fprintf(stderr, "Cannot find a directory %s\n", absMountPath);
+            free(absMountPath);
+            return -1;
+        } else {
+            // not accessible
+            fprintf(stderr, "The directory %s is not accessible\n", absMountPath);
+            free(absMountPath);
+            return -1;
+        }
+    }
+
     free(absMountPath);
     
     dir = opendir(resolvedMountPath);
