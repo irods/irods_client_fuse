@@ -23,6 +23,8 @@ int iFuseRodsClientDisconnect(rcComm_t *conn);
 
 int iFuseRodsClientMakeRodsPath(const char *path, char *iRodsPath);
 
+int iFuseRodsClientSetSessionTicket(rcComm_t *conn, ticketAdminInp_t *ticketAdminInp);
+
 int iFuseRodsClientDataObjOpen(rcComm_t *conn, dataObjInp_t *dataObjInp);
 int iFuseRodsClientDataObjClose(rcComm_t *conn, openedDataObjInp_t *dataObjCloseInp);
 int iFuseRodsClientOpenCollection( rcComm_t *conn, char *collection, int flag, collHandle_t *collHandle );

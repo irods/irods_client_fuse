@@ -126,44 +126,60 @@ irodsFsCtl.py show_connections yourMountPoint
 Helpful options
 ---------------
 
-1) Enabling/disabling features
-- `-onocache`: Disable all caching features (Buffered IO, Preload, Metadata 
+1) Arguments
+- `-h`: show help message
+- `-v` or `-V`: show version
+- `-d`: run irodsFs in debug mode
+- `-t <ticket_number>`: use ticket
+- `-w <irods_working_dir>`: set working directory
+- `-o <fuse_args>`: fuse-specific parameters
+
+2) Enabling/disabling features
+- `--nocache`: Disable all caching features (Buffered IO, Preload, Metadata 
    Cache)
-- `-onopreload`: Disable Preload feature that pre-fetches file blocks in 
+- `--nopreload`: Disable Preload feature that pre-fetches file blocks in 
    advance. By default, the preload is turned on.
-- `-onocachemetadata`: Disable metadata caching feature. By default, the 
+- `--nocachemetadata`: Disable metadata caching feature. By default, the 
    metadata cacheing is turned on.
-- `-oconnreuse`: Set to reuse network connections for performance. This may 
+- `--connreuse`: Set to reuse network connections for performance. This may 
    provide inconsistent metadata with mysql-backed iCAT. By default, connections
    are not reused.
 
-2) Other configurations
-- `-omaxconn`: Set max number of network connection to be established at the 
-   same time. By default, this is set to 10.
-- `-oblocksize`: Set block size at data transfer. All transfer is made in a 
-   block-level for performance. By default, this is set to 1048576(1MB).
-- `-oconntimeout`: Set timeout of a network connection. After the timeout, idle 
-   connections will be automatically closed. By default, this is set to 300
-   (5 minutes).
-- `-oconnkeepalive`: Set intervals of keepalive requests. For every keepalive 
-   intervals, keepalive message is sent to iCAT to keep network connections 
-   live. By default, this is set to 180(3 minutes).
-- `-oconncheckinterval`: Set intervals of connection timeout check. For every 
-   check intervals, all connections established are checked to figure out if 
-   they are timed-out. By default, this is set to 10(10 seconds).
-- `-oapitimeout`: Set timeout of iRODS client API calls. If an API call does not
-   respond before the timeout, the API call and the network connection 
-   associated with are killed. By default, this is set to 90(90 seconds).
-- `-opreloadblocks`: Set the number of blocks pre-fetched. By default, this is 
-   set to 3 (next 3 blocks in advance).
-- `-ometadatacachetimeout`: Set timeout of a metadata cache. Metadata caches are
-   invalidated after the timeout. By default, this is set to 180(3 minutes).
-
+3) Other configurations
+- `--maxconn <num_conn>`: Set max number of network connection to be established
+   at the same time. By default, this is set to 10.
+- `--blocksize <block_size>`: Set block size at data transfer. All transfer is 
+   made in a block-level for performance. By default, this is set to 
+   1048576(1MB).
+- `--conntimeout <timeout_in_seconds>`: Set timeout of a network connection. 
+   After the timeout, idle connections will be automatically closed. By default,
+   this is set to 300(5 minutes).
+- `--connkeepalive <interval_in_seconds>`: Set interval of keepalive requests. 
+   For every keepalive interval, keepalive message is sent to iCAT to keep 
+   network connections live. By default, this is set to 180(3 minutes).
+- `--conncheckinterval <interval_in_seconds>`: Set intervals of connection 
+   timeout check. For every check intervals, all connections established are 
+   checked to figure out if they are timed-out. By default, this is set to 
+   10(10 seconds).
+- `--apitimeout <timeout_in_seconds>`: Set timeout of iRODS client API calls. 
+   If an API call does not respond before the timeout, the API call and the 
+   network connection associated with are killed. By default, this is set to 
+   90(90 seconds).
+- `--preloadblocks <num_blocks>`: Set the number of blocks pre-fetched. By 
+   default, this is set to 3 (next 3 blocks in advance).
+- `--metadatacachetimeout <timeout_in_seconds>`: Set timeout of a metadata 
+   cache. Metadata caches are invalidated after the timeout. By default, this is
+   set to 180(3 minutes).
 
 For example, following command will 1) reuse connections, 2) prefetch next 
 5 blocks and 3) set timeout of metadata cache to 1 hour.
 ```
-irodsFs -oconnreuse -opreloadblocks 5 -ometadatacachetimeout 3600 yourMountPoint
+irodsFs --connreuse --preloadblocks 5 --metadatacachetimeout 3600 yourMountPoint
+```
+
+An example of using ticket is:
+```
+irodsFs --connreuse -t yourTicket -w dataDirectory yourMountPoint
 ```
 
 
