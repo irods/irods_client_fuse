@@ -22,6 +22,7 @@
 #include "iFuse.Lib.RodsClientAPI.hpp" 
 #include "iFuseOper.hpp"
 #include "iFuseCmdLineOpt.hpp"
+#include "iFuseVersion.hpp"
 
 static struct fuse_operations irodsOper;
 
@@ -83,6 +84,7 @@ int main(int argc, char **argv) {
     }
     if (myiFuseOpt.version) {
         printf("iRODS RELEASE VERSION: %s\n", RODS_REL_VERSION);
+        printf("iRODS FUSE CLIENT VERSION: %s\n", IFUSE_VERSION);
         return 0;
     }
     
@@ -170,7 +172,8 @@ static void usage() {
         " --conncheckinterval <interval>   Set intervals of connection timeout check. For every check intervals, all connections established are checked to figure out if they are timed-out. By default, this is set to 10(10 seconds)",
         " --apitimeout <timeout>           Set timeout of iRODS client API calls. If an API call does not respond before the timeout, the API call and the network connection associated with are killed. By default, this is set to 90(90 seconds)",
         " --preloadblocks <num_blocks>     Set the number of blocks pre-fetched. By default, this is set to 3 (next 3 blocks in advance)",
-        " --metadatacachetimeout <timeout> Set timeout of a metadata cache. Metadata caches are invalidated after the timeout. By default, this is set to 180(3 minutes)"
+        " --metadatacachetimeout <timeout> Set timeout of a metadata cache. Metadata caches are invalidated after the timeout. By default, this is set to 180(3 minutes)",
+        ""
     };
     int i;
     for (i = 0;; i++) {
