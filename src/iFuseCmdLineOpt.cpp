@@ -133,6 +133,16 @@ void iFuseCmdOptsDestroy() {
         free(g_Opt.mountpoint);
         g_Opt.mountpoint = NULL;
     }
+    
+    if(g_Opt.workdir != NULL) {
+        free(g_Opt.workdir);
+        g_Opt.workdir = NULL;
+    }
+    
+    if(g_Opt.ticket != NULL) {
+        free(g_Opt.ticket);
+        g_Opt.ticket = NULL;
+    }
 
     peopt = g_Opt.extendedOpts;
     while(peopt != NULL) {
@@ -239,7 +249,7 @@ void iFuseCmdOptsParse(int argc, char **argv) {
     }
 
     optind = 1;
-    while((c = getopt(argc, argv, "hvVdfo:Z")) != -1) {
+    while((c = getopt(argc, argv, "hvVdfo:t:w:Z")) != -1) {
         switch(c) {
             case 'h':
                 {
@@ -280,6 +290,22 @@ void iFuseCmdOptsParse(int argc, char **argv) {
                     bzero(buff, MAX_NAME_LEN);
                     sprintf(buff, "-o%s", optarg);
                     iFuseCmdOptsAdd(buff);
+                }
+                break;
+            case 't':
+                {
+                    // ticket
+                    if (strlen(optarg) > 0) {
+                        g_Opt.ticket = strdup(optarg);
+                    }
+                }
+                break;
+            case 'w':
+                {
+                    // work-dir
+                    if (strlen(optarg) > 0) {
+                        g_Opt.workdir = strdup(optarg);
+                    }
                 }
                 break;
             case 'Z':
