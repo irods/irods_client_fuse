@@ -21,7 +21,7 @@ typedef struct IFuseCmdArg {
 
 void iFuseCmdOptsInit();
 void iFuseCmdOptsDestroy();
-void iFuseCmdOptsParse(int argc, char **argv);
+int iFuseCmdOptsParse(int argc, char **argv);
 void iFuseCmdOptsAdd(char *opt);
 void iFuseGetOption(iFuseOpt_t *opt);
 void iFuseGenCmdLineForFuse(int *fuse_argc, char ***fuse_argv);

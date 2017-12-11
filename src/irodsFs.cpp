@@ -73,8 +73,11 @@ int main(int argc, char **argv) {
 
     iFuseCmdOptsInit();
 
-    iFuseCmdOptsParse(argc, argv);
-    iFuseCmdOptsAdd("-odirect_io");
+    status = iFuseCmdOptsParse(argc, argv);
+    if (status != 0) {
+        fprintf(stderr, "iRods Fuse abort: iFuseCmdOptsParse error with status %d\n", status);
+        return 1;
+    }
 
     iFuseGetOption(&myiFuseOpt);
 
