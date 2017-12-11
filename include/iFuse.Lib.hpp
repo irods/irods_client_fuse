@@ -20,6 +20,7 @@ typedef struct IFuseOpt {
     bool debug;
     bool nonempty;
     bool foreground;
+    bool directio;
     bool bufferedFS;
     bool preload;
     bool cacheMetadata;

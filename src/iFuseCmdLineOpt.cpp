@@ -32,9 +32,10 @@ static bool _atob(const char *str) {
 
 void iFuseCmdOptsInit() {
     char *value;
-    
+
     bzero(&g_Opt, sizeof(iFuseOpt_t));
 
+    g_Opt.directio = true;
     g_Opt.bufferedFS = true;
     g_Opt.preload = true;
     g_Opt.cacheMetadata = true;
@@ -51,7 +52,7 @@ void iFuseCmdOptsInit() {
     g_Opt.rodsapiTimeoutSec = IFUSE_RODSCLIENTAPI_TIMEOUT_SEC;
     g_Opt.preloadNumBlocks = IFUSE_PRELOAD_PBLOCK_NUM;
     g_Opt.metadataCacheTimeoutSec = IFUSE_METADATA_CACHE_TIMEOUT_SEC;
-    
+
     // check environmental variables
     value = getenv("IRODSFS_NOCACHE"); // true/false
     if(_atob(value)) {
@@ -59,62 +60,62 @@ void iFuseCmdOptsInit() {
         g_Opt.preload = false;
         g_Opt.cacheMetadata = false;
     }
-    
+
     value = getenv("IRODSFS_NOPRELOAD"); // true/false
     if(_atob(value)) {
         g_Opt.preload = false;
     }
-    
+
     value = getenv("IRODSFS_NOCACHEMETADATA"); // true/false
     if(_atob(value)) {
         g_Opt.cacheMetadata = false;
     }
-    
+
     value = getenv("IRODSFS_MAXCONN"); // number
     if(value != NULL) {
         g_Opt.maxConn = atoi(value);
     }
-    
+
     value = getenv("IRODSFS_BLOCKSIZE"); // number
     if(value != NULL) {
         g_Opt.blocksize = atoi(value);
     }
-    
+
     value = getenv("IRODSFS_CONNREUSE"); // true/false
     if(_atob(value)) {
         g_Opt.connReuse = true;
     }
-    
+
     value = getenv("IRODSFS_NOCONNREUSE"); // true/false
     if(_atob(value)) {
         g_Opt.connReuse = false;
     }
-    
+
     value = getenv("IRODSFS_CONNTIMEOUT"); // number
     if(value != NULL) {
         g_Opt.connTimeoutSec = atoi(value);
     }
-    
+
     value = getenv("IRODSFS_CONNKEEPALIVE"); // number
     if(value != NULL) {
         g_Opt.connKeepAliveSec = atoi(value);
     }
-    
+
     value = getenv("IRODSFS_CONNCHECKINTERVAL"); // number
     if(value != NULL) {
         g_Opt.connCheckIntervalSec = atoi(value);
     }
-    
+
     value = getenv("IRODSFS_APITIMEOUT"); // number
     if(value != NULL) {
         g_Opt.rodsapiTimeoutSec = atoi(value);
     }
-    
+
     value = getenv("IRODSFS_PRELOADBLOCKS"); // number
     if(value != NULL) {
         g_Opt.preloadNumBlocks = atoi(value);
     }
-    
+
     value = getenv("IRODSFS_METADATACACHETIMEOUT"); // number
     if(value != NULL) {
         g_Opt.metadataCacheTimeoutSec = atoi(value);
@@ -133,12 +134,12 @@ void iFuseCmdOptsDestroy() {
         free(g_Opt.mountpoint);
         g_Opt.mountpoint = NULL;
     }
-    
+
     if(g_Opt.workdir != NULL) {
         free(g_Opt.workdir);
         g_Opt.workdir = NULL;
     }
-    
+
     if(g_Opt.ticket != NULL) {
         free(g_Opt.ticket);
         g_Opt.ticket = NULL;
@@ -172,7 +173,7 @@ static int _parseFuseCommandArg(char **argv, int argc, int index, iFuseCmdArg_t 
     // handle -- or -oxxx or -o xxx
     int tokens = 0;
     int i;
-    
+
     bzero(option, sizeof(iFuseCmdArg_t));
     for(i=index;i<argc;i++) {
         if(strcmp(argv[i], "-o") == 0) {
@@ -223,7 +224,7 @@ static int _parseFuseCommandArg(char **argv, int argc, int index, iFuseCmdArg_t 
     return tokens;
 }
 
-void iFuseCmdOptsParse(int argc, char **argv) {
+int iFuseCmdOptsParse(int argc, char **argv) {
     int c;
     char buff[MAX_NAME_LEN];
     int index;
@@ -242,6 +243,9 @@ void iFuseCmdOptsParse(int argc, char **argv) {
 
             if(strcmp(cmd.command, "version") == 0) {
                 g_Opt.version = true;
+                processed = true;
+            } else if(strcmp(cmd.command, "nodirectio") == 0) {
+                g_Opt.directio = false;
                 processed = true;
             } else if(strcmp(cmd.command, "nocache") == 0) {
                 g_Opt.bufferedFS = false;
@@ -310,6 +314,40 @@ void iFuseCmdOptsParse(int argc, char **argv) {
                     g_Opt.workdir = strdup(cmd.value);
                 }
                 processed = true;
+            } else if(strcmp(cmd.command, "default_permissions") == 0) {
+                // skip - fuse command
+            } else if(strcmp(cmd.command, "allow_other") == 0) {
+                // skip - fuse command
+            } else if(strcmp(cmd.command, "nonempty") == 0) {
+                // skip - fuse command
+            } else if(strcmp(cmd.command, "use_ino") == 0) {
+                // skip - fuse command
+            } else if(strcmp(cmd.command, "blkdev") == 0) {
+                // skip - fuse command
+            } else if(strcmp(cmd.command, "allow_root") == 0) {
+                // skip - fuse command
+            } else if(strcmp(cmd.command, "auto_unmount") == 0) {
+                // skip - fuse command
+            } else if(strncmp(cmd.command, "rootmode", strlen("rootmode")) == 0) {
+                // skip - fuse command
+            } else if(strncmp(cmd.command, "blksize", strlen("blksize")) == 0) {
+                // skip - fuse command
+            } else if(strncmp(cmd.command, "max_read", strlen("max_read")) == 0) {
+                // skip - fuse command
+            } else if(strncmp(cmd.command, "fd", strlen("fd")) == 0) {
+                // skip - fuse command
+            } else if(strncmp(cmd.command, "user_id", strlen("user_id")) == 0) {
+                // skip - fuse command
+            } else if(strncmp(cmd.command, "fsname", strlen("fsname")) == 0) {
+                // skip - fuse command
+            } else if(strncmp(cmd.command, "subtype", strlen("subtype")) == 0) {
+                // skip - fuse command
+            } else if(strlen(cmd.command) == 1) {
+                // skip - short commands
+            } else {
+                // unknown parameters
+                fprintf(stderr, "unknown parameter - %s\n", cmd.command);
+                return 1;
             }
 
             if(processed) {
@@ -354,8 +392,8 @@ void iFuseCmdOptsParse(int argc, char **argv) {
                 {
                     // fuse options
                     if (strcmp("use_ino", optarg) == 0) {
-                        fprintf(stderr, "use_ino fuse option not supported, ignoring\n");
-                        break;
+                        fprintf(stderr, "use_ino fuse option not supported\n");
+                        return 1;
                     } else if (strcmp("nonempty", optarg) == 0) {
                         // fuse nonempty option
                         g_Opt.nonempty = true;
@@ -400,6 +438,8 @@ void iFuseCmdOptsParse(int argc, char **argv) {
             break;
         }
     }
+
+    return 0;
 }
 
 void iFuseCmdOptsAdd(char *opt) {
@@ -446,6 +486,14 @@ void iFuseGenCmdLineForFuse(int *fuse_argc, char ***fuse_argv) {
         argc++;
     }
 
+    if(g_Opt.nonempty) {
+        argc++;
+    }
+
+    if(g_Opt.directio) {
+        argc++;
+    }
+
     if(g_Opt.mountpoint != NULL) {
         argc++;
     }
@@ -488,13 +536,22 @@ void iFuseGenCmdLineForFuse(int *fuse_argc, char ***fuse_argv) {
             fprintf(stdout, "foreground : %d\n", g_Opt.foreground);
         }
     }
-    
+
     if(g_Opt.nonempty) {
         argv[i] = strdup("-nonempty");
         i++;
 
         if(g_Opt.debug) {
             fprintf(stdout, "nonempty : %d\n", g_Opt.nonempty);
+        }
+    }
+
+    if(g_Opt.directio) {
+        argv[i] = strdup("-odirect_io");
+        i++;
+
+        if(g_Opt.debug) {
+            fprintf(stdout, "direct_io : %d\n", g_Opt.directio);
         }
     }
 
