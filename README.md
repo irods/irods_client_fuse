@@ -37,6 +37,7 @@ sudo apt-get install irods-runtime
 sudo apt-get install irods-externals-clang3.8-0
 sudo apt-get install irods-externals-cppzmq4.1-0
 sudo apt-get install irods-externals-cmake3.5.2-0
+sudo apt-get install irods-externals-json3.7.3-0
 ```
 
 This will install the necessary buildchain into `/opt/irods-externals`.
