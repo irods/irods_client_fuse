@@ -89,9 +89,13 @@ mkdir /usr/tmp/fmount
 irodsFs /usr/tmp/fmount
 ```
 
-The user's home collection is now mounted. The iRODS files and sub-collections
+By default, the user's home collection is now mounted. The iRODS files and sub-collections
 in the user's home collection should be accessible with normal UNIX commands
 through the /usr/tmp/fmount directory.
+
+The mounted collection can be changed with `icd`.  `irodsFs` will use current working
+collection (a result of `ipwd`) as its mount directory.
+
 
 
 Run irodsFs in debug mode
