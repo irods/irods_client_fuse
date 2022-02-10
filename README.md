@@ -1,6 +1,15 @@
 iRODS FUSE client
 =================
 
+Note: This repository has been deprecated and archived.
+
+Please find a new FUSE implementation for iRODS at:
+
+https://github.com/cyverse/irodsfs
+
+
+
+
 Description
 -----------
 
